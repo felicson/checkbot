@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"runtime"
+	"sort"
 	"strconv"
 	//	_"net/http/pprof"
 	"bufio"
@@ -150,7 +151,7 @@ func (storage *Items) Push(ip string, item *Item) {
 	storage.Lock()
 	defer storage.Unlock()
 	storage.row[ip] = item
-	storage.array = append(storage.array, item)
+	storage.array.items = append(storage.array.items, item)
 }
 
 func (storage Items) Get(ip string) (*Item, bool) {
@@ -191,16 +192,34 @@ func isBotValid(addr string) bool {
 	return false
 }
 
-type ItemsList []*Item
+type By func(i1, i2 *Item) bool
 
-func (item ItemsList) Len() int           { return len(item) }
-func (item ItemsList) Swap(i, j int)      { item[i], item[j] = item[j], item[i] }
-func (item ItemsList) Less(i, j int) bool { return item[i].Hits > item[j].Hits }
+func (by By) Sort(items ItemsList) {
+
+	is := ItemsList{items: items.items, by: by}
+
+	sort.Sort(is)
+}
+
+type ItemsList struct {
+	items []*Item
+	by    func(i1, i2 *Item) bool
+}
+
+func (item ItemsList) Len() int { return len(item.items) }
+
+func (item ItemsList) Swap(i, j int) { item.items[i], item.items[j] = item.items[j], item.items[i] }
+
+func (item ItemsList) Less(i, j int) bool {
+
+	return item.by(item.items[i], item.items[j])
+
+}
 
 func (items ItemsList) Pages() []int {
 
 	var pages []int
-	pages_num := math.Ceil(float64(len(storage.array)) / float64(DELIM))
+	pages_num := math.Ceil(float64(len(storage.array.items)) / float64(DELIM))
 	if pages_num > 0 {
 
 		pages = make([]int, int(pages_num))
@@ -211,7 +230,7 @@ func (items ItemsList) Pages() []int {
 	return pages
 
 }
-func (items ItemsList) Offset(start string) ItemsList {
+func (i ItemsList) Offset(start string) []*Item {
 
 	offset, err := strconv.Atoi(start)
 	if err != nil {
@@ -224,10 +243,10 @@ func (items ItemsList) Offset(start string) ItemsList {
 	}
 	end := (offset * DELIM) + DELIM
 
-	if len(items) >= end {
-		return items[offset*DELIM : end]
+	if len(i.items) >= end {
+		return i.items[offset*DELIM : end]
 	}
-	return items[offset*DELIM:]
+	return i.items[offset*DELIM:]
 	//return items
 }
 

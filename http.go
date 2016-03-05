@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"pid"
-	"sort"
 	"strings"
 )
 
@@ -53,11 +52,15 @@ const HTML = `<table cellpadding="10" border=1>
 func (storage *Items) InfoHandler(w http.ResponseWriter, r *http.Request) {
 
 	var p string
+
 	if p = r.FormValue("p"); p == "" {
 		p = "0"
 	}
 
-	sort.Sort(&storage.array)
+	//hits := func(i1, i2 *Item) bool { return i1.Hits > i2.Hits }
+	bytes := func(i1, i2 *Item) bool { return i1.Bytes > i2.Bytes }
+
+	By(bytes).Sort(storage.array)
 
 	tmpl.Execute(w, storage.array.Offset(p))
 
@@ -173,16 +176,16 @@ func init() {
 
 func Run(storage *Items) {
 
-	const SOCKET = "/tmp/checkbot.sock"
+	//	const SOCKET = "/tmp/checkbot.sock"
 
-	if _, err := os.Stat(SOCKET); err == nil {
+	//	if _, err := os.Stat(SOCKET); err == nil {
+	//
+	//		logchan <- "Remove old socket file"
+	//		os.Remove(SOCKET)
+	//	}
 
-		logchan <- "Remove old socket file"
-		os.Remove(SOCKET)
-	}
-
-	listener, err := net.Listen("unix", SOCKET)
-	//listener, err := net.Listen("tcp", ":9000")
+	//	listener, err := net.Listen("unix", SOCKET)
+	listener, err := net.Listen("tcp", ":9000")
 
 	if err != nil {
 		panic(err)
@@ -193,11 +196,11 @@ func Run(storage *Items) {
 	http.HandleFunc("/info/ip/ban", storage.banHandler)
 	http.HandleFunc("/info/whois", WhoisHandler)
 
-	err = os.Chmod(SOCKET, 0777)
-
-	if err != nil {
-		panic(err)
-	}
+	//	err = os.Chmod(SOCKET, 0777)
+	//
+	//	if err != nil {
+	//		panic(err)
+	//	}
 
 	pid.CreatePid()
 
