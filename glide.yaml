@@ -1,0 +1,6 @@
+package: checkbot
+import:
+- package: github.com/MathieuTurcotte/go-trie
+  subpackages:
+  - gtrie
+- package: github.com/martinolsen/go-whois

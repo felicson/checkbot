@@ -1,0 +1,10 @@
+hash: a2db16c177630bf90832bca1b1ccac76d3d7ff19af3777be5dacd18e6b34523a
+updated: 2017-09-24T23:31:53.040801314+07:00
+imports:
+- name: github.com/martinolsen/go-whois
+  version: 5d2cb3b23df53c274869c95c180ebd39f0dca0b7
+- name: github.com/MathieuTurcotte/go-trie
+  version: 907bb848563c1ffb323c7cd2edd747dcaf58a2c3
+  subpackages:
+  - gtrie
+testImports: []

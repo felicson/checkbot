@@ -1,22 +1,23 @@
 package main
 
 import (
+	"bufio"
 	"errors"
 	"flag"
 	"fmt"
 	"github.com/MathieuTurcotte/go-trie/gtrie"
+	"log"
 	"math"
 	"net"
 	"net/http"
-	"runtime"
-	"sort"
-	"strconv"
-	//	_"net/http/pprof"
-	"bufio"
-	"log"
+	"pid"
+	//_ "net/http/pprof"
 	"os"
 	"os/exec"
 	"os/signal"
+	"runtime"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -41,7 +42,10 @@ var (
 
 	banlog    *log.Logger
 	logfile   string
+	ignoreip  string
 	banlogout *os.File
+	pidFile   string
+	pidFileD  *pid.LockFile
 
 	logchan chan string
 
@@ -67,7 +71,7 @@ var (
 
 const (
 	SIGHUP   = syscall.SIGHUP
-	DELIM    = 100
+	DELIM    = 50
 	todayFmt = "02/Jan/2006"
 )
 
@@ -85,8 +89,8 @@ type Item struct {
 }
 
 type Items struct {
-	row   map[string]*Item
-	array ItemsList
+	row map[string]*Item
+	//array []*Item
 	*http.HandlerFunc
 	sync.Mutex
 	today string
@@ -104,7 +108,7 @@ func NewItems() *Items {
 	items := &Items{today: today()}
 
 	items.row = make(map[string]*Item)
-	items.array = ItemsList{}
+	//items.array = make([]*Item, 0)
 
 	trie, err := gtrie.Create(WHITE_PATH)
 
@@ -117,20 +121,20 @@ func NewItems() *Items {
 	return items
 }
 
-func (storage *Items) IsWhitePath(path string) bool {
+func (storage *Items) IsWhitePath(path *string) bool {
 
 	//	defer timeTrack(time.Now(),"check in white")
 	var l rune
 
-	storage.Lock()
+	//	storage.Lock()
 	trie2 := storage.trie
 
 	defer func() {
 		storage.trie = trie2
-		storage.Unlock()
+		//		storage.Unlock()
 	}()
 
-	for _, l = range path {
+	for _, l = range *path {
 
 		curr := storage.trie.GetChild(l)
 
@@ -149,9 +153,10 @@ func (storage *Items) IsWhitePath(path string) bool {
 func (storage *Items) Push(ip string, item *Item) {
 
 	storage.Lock()
-	defer storage.Unlock()
 	storage.row[ip] = item
-	storage.array.items = append(storage.array.items, item)
+	//storage.array = append(storage.array, item)
+
+	storage.Unlock()
 }
 
 func (storage Items) Get(ip string) (*Item, bool) {
@@ -167,7 +172,7 @@ func (storage *Items) Reset() {
 	defer storage.Unlock()
 	storage.row = make(map[string]*Item)
 	storage.today = today()
-	storage.array = ItemsList{}
+	//storage.array = make([]*Item, 0)
 }
 
 func timeTrack(start time.Time, name string) {
@@ -177,12 +182,23 @@ func timeTrack(start time.Time, name string) {
 
 func isBotValid(addr string) bool {
 
-	parts := strings.Split(addr, ".")
-	length := len(parts)
+	addrlen := len(addr) - 1
+	flag, index := 0, 0
 
-	if length > 2 {
+	for i := addrlen; i > 0; i-- {
 
-		domain := strings.Join(parts[length-3:length-1], ".")
+		if addr[i] == '.' {
+			flag++
+		}
+		if flag == 3 {
+			index = i + 1
+			break
+		}
+	}
+
+	if addrlen > 5 {
+
+		domain := addr[index:addrlen]
 
 		if ok, _ := VALID[domain]; ok {
 
@@ -194,32 +210,33 @@ func isBotValid(addr string) bool {
 
 type By func(i1, i2 *Item) bool
 
-func (by By) Sort(items ItemsList) {
+func (by By) Sort(bots []*Item) ItemsList {
 
-	is := ItemsList{items: items.items, by: by}
-
+	is := ItemsList{Items: bots, by: by, length: len(bots)}
 	sort.Sort(is)
+	return is
 }
 
 type ItemsList struct {
-	items []*Item
-	by    func(i1, i2 *Item) bool
+	Items  []*Item
+	by     func(i1, i2 *Item) bool
+	length int
 }
 
-func (item ItemsList) Len() int { return len(item.items) }
+func (item ItemsList) Len() int { return len(item.Items) }
 
-func (item ItemsList) Swap(i, j int) { item.items[i], item.items[j] = item.items[j], item.items[i] }
+func (item ItemsList) Swap(i, j int) { item.Items[i], item.Items[j] = item.Items[j], item.Items[i] }
 
 func (item ItemsList) Less(i, j int) bool {
 
-	return item.by(item.items[i], item.items[j])
+	return item.by(item.Items[i], item.Items[j])
 
 }
 
-func (items ItemsList) Pages() []int {
+func (items *ItemsList) Pages() []int {
 
 	var pages []int
-	pages_num := math.Ceil(float64(len(storage.array.items)) / float64(DELIM))
+	pages_num := math.Ceil(float64(items.length) / float64(DELIM))
 	if pages_num > 0 {
 
 		pages = make([]int, int(pages_num))
@@ -230,7 +247,7 @@ func (items ItemsList) Pages() []int {
 	return pages
 
 }
-func (i ItemsList) Offset(start string) []*Item {
+func (i *ItemsList) Offset(start string) (*ItemsList, error) {
 
 	offset, err := strconv.Atoi(start)
 	if err != nil {
@@ -243,29 +260,35 @@ func (i ItemsList) Offset(start string) []*Item {
 	}
 	end := (offset * DELIM) + DELIM
 
-	if len(i.items) >= end {
-		return i.items[offset*DELIM : end]
+	if len(i.Items) >= end {
+		i.Items = i.Items[offset*DELIM : end]
+		return i, nil
 	}
-	return i.items[offset*DELIM:]
-	//return items
+
+	if offset*DELIM > len(i.Items) {
+		return nil, errors.New("Wrong offset")
+	}
+	i.Items = i.Items[offset*DELIM:]
+	return i, nil
 }
 
-func ExtractIP(row *string) (string, string, string, uint64, error) {
+func ExtractIP(row *string) (string, string, string, uint64, uint32, error) {
 
 	data := strings.SplitN(*row, " ", 11)[0:10]
 
 	if len(data) < 10 {
 		log.Printf("Wrong log string format: %s", row)
-		return "", "", "", 0, errors.New("Wrong log string")
+		return "", "", "", 0, 200, errors.New("Wrong log string")
 	}
 
 	if len(data[3]) < 13 {
 		log.Printf("Wrong date format : %s", data[3])
-		return "", "", "", 0, errors.New("Wrong date format")
+		return "", "", "", 0, 200, errors.New("Wrong date format")
 	}
 	time := data[3][1:12]
 	bytes, _ := strconv.Atoi(data[9])
-	return data[0], data[6], time, uint64(bytes), nil
+	code, _ := strconv.Atoi(data[8])
+	return data[0], data[6], time, uint64(bytes), uint32(code), nil
 }
 
 func today() string {
@@ -316,6 +339,7 @@ func execBan() {
 	for ip := range fwchan {
 
 		execCommand(fmt.Sprintf("sudo /sbin/ipset add blacklist %s", ip))
+		//execCommand(fmt.Sprintf("echo %s", ip))
 	}
 }
 
@@ -353,6 +377,11 @@ func (ip *Item) Lookup(ip_addr string) {
 
 	ip.Checked = true
 
+	if ip_addr == ignoreip {
+		ip.White = true
+		return
+	}
+
 	if err != nil {
 		ip.Banned = true
 		//		fmt.Println("BANNED NOT resolved",ip.IP)
@@ -360,6 +389,7 @@ func (ip *Item) Lookup(ip_addr string) {
 		fwchan <- ip.IP
 		return
 	}
+
 	if isBotValid(dns[0]) {
 
 		logchan <- fmt.Sprintf("WHITE %s", ip.IP)
@@ -405,7 +435,7 @@ func NewItem(ip string, bytes uint64) *Item {
 
 func analyzer(line *string) {
 
-	ip, path, date, bytes, err := ExtractIP(line)
+	ip, path, date, bytes, code, err := ExtractIP(line)
 	if err != nil {
 		return
 	}
@@ -414,7 +444,11 @@ func analyzer(line *string) {
 
 		if item, ok := storage.Get(ip); ok {
 
-			if storage.IsWhitePath(path) {
+			if code == 302 {
+				return
+			}
+
+			if storage.IsWhitePath(&path) {
 
 				item.HitsBytesIncrement(bytes, true)
 				return
@@ -473,6 +507,7 @@ func SigHandler(sig os.Signal) {
 		logchan <- "SIGNAL KILL RECEIVE"
 		logCleanup()
 		os.Remove("/tmp/checkbot.sock")
+		pidFileD.Remove()
 		os.Exit(0)
 	}
 }
@@ -497,6 +532,8 @@ func init() {
 
 	flag.StringVar(&loglist, "loglist", "/home/felicson/loglist.conf", "loglist=/path/loglist.conf")
 	flag.StringVar(&logfile, "logfile", "/home/felicson/checkbot.log", "logfile=/path/loglist.conf")
+	flag.StringVar(&ignoreip, "ignoreip", "1.2.3.4", "ignoreip=1.2.3.4")
+	flag.StringVar(&pidFile, "pidfile", "/var/run/go/checkbot.pid", "pidfile=/var/run/go/progname.pid")
 
 	flag.Parse()
 
@@ -535,9 +572,23 @@ func init() {
 
 func main() {
 
+	if flag.NFlag() < 2 {
+		flag.Usage()
+		os.Exit(0)
+	}
+
 	ncpu := runtime.NumCPU()
 
 	runtime.GOMAXPROCS(ncpu)
+
+	var err error
+	pidFileD, err = pid.CreatePidFile(pidFile, 0644)
+
+	defer pidFileD.Remove()
+
+	if err != nil {
+		panic(err)
+	}
 
 	storage = NewItems()
 

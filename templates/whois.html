@@ -1,0 +1,6 @@
+{{ define "title" }}Whois {{ .IP}}{{ end }}
+{{ define "content" }}
+<h1>Whois {{ .IP}}</h1>
+<h3><a href="/info/ip?find={{.IP}}">Смотреть лог</a></h3>
+{{.Whois|nl2br}}
+{{ end }}

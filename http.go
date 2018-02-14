@@ -1,53 +1,37 @@
 package main
 
+//go:generate go-bindata -nocompress templates/... assets/
 import (
 	"bufio"
 	"fmt"
-	//	"github.com/likexian/whois-go"
+	"github.com/martinolsen/go-whois"
 	"html/template"
 	"net"
 	"net/http"
 	"os"
-	"os/exec"
-	"pid"
+	"path/filepath"
 	"strings"
+	"sync"
 )
 
 var (
 	tmpl     *template.Template
 	tmpl_err error
+	t        map[string]*template.Template
+
+	apool sync.Pool
 )
 
-const HTML = `<table cellpadding="10" border=1>
-				<tr>
-					<th>#</th>
-					<th>IP</th>
-					<th>Hits</th>
-					<th>Valid hits</th>
-					<th>Checked</th>
-					<th>Result</th>
-					<th>Down</th>
-					<th colspan="3">Actions</th>
-			  </tr>{{with .}}{{range $index,$elem := .}}<tr>
-				  <td>{{$index}}</td><td>{{.IP}}</td>
-				  <td>{{.Hits}}</td>
-				  <td>{{.White_hits}}</td>
-				  <td>{{if .Checked}}YES{{end}}</td>
-				  <td>{{if .White}}<span style="background-color:#DFF0D8;">GOOD</span>{{end}}{{if .Banned}}<span style="background-color:#F2DEDE;">BAD</span>{{end}}</td>
-				  <td>{{.Bytes|mgb}}</td>
-				  <td><a href="/info/ip?find={{.IP}}">view log</a></td>
-				  {{if .Banned}}
-					<td style="background-color:#F2DEDE;"><a href="/info/ip/ban?ip={{.IP}}&action=unban">unban</a></td>
-				  {{else}}
-					<td style="background-color:#DFF0D8;"><a href="/info/ip/ban?ip={{.IP}}&action=ban">ban</a></td>
-				  {{end}}
-				  <td><a href="/info/whois?ip={{.IP}}">whois</a></td>
-			  </tr>{{end}}{{end}}
-			  </table>
-			  {{range $index, $page := .Pages}} 
-				  <a href="/info/?p={{$page}}">{{$page}}</a>
-			  {{end}}
-			  `
+func renderTemplate(w http.ResponseWriter, name string, data interface{}) error {
+
+	tpl, ok := t[name]
+
+	if !ok {
+		return fmt.Errorf("The template %s does not exist!", name)
+	}
+
+	return tpl.ExecuteTemplate(w, "base", data)
+}
 
 func (storage *Items) InfoHandler(w http.ResponseWriter, r *http.Request) {
 
@@ -57,12 +41,42 @@ func (storage *Items) InfoHandler(w http.ResponseWriter, r *http.Request) {
 		p = "0"
 	}
 
-	//hits := func(i1, i2 *Item) bool { return i1.Hits > i2.Hits }
-	bytes := func(i1, i2 *Item) bool { return i1.Bytes > i2.Bytes }
+	var bySort By
 
-	By(bytes).Sort(storage.array)
+	bySort = func(i1, i2 *Item) bool { return i1.Hits > i2.Hits }
 
-	tmpl.Execute(w, storage.array.Offset(p))
+	by := r.FormValue("sort")
+
+	switch by {
+
+	case "bytes":
+		bySort = func(i1, i2 *Item) bool { return i1.Bytes > i2.Bytes }
+
+	case "valid":
+		bySort = func(i1, i2 *Item) bool { return i1.White_hits > i2.White_hits }
+
+	}
+	array := apool.Get().([]*Item)
+	storageLen := len(storage.row)
+
+	if len(array) < storageLen {
+		array = make([]*Item, storageLen)
+	}
+
+	defer apool.Put(array)
+	i := 0
+	for _, v := range storage.row {
+		array[i] = v
+		i++
+	}
+	data := By(bySort).Sort(array)
+	bots, err := data.Offset(p)
+
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	renderTemplate(w, "index", bots)
 
 }
 
@@ -116,9 +130,11 @@ func FindHandler(w http.ResponseWriter, r *http.Request) {
 	var pattern string
 
 	if pattern = r.FormValue("find"); pattern == "" {
-		w.Write([]byte("Not set pattern"))
+		http.Error(w, "Pattern not set", 500)
 		return
 	}
+
+	matches := make(map[string][]string)
 
 	for _, log := range Logs {
 
@@ -130,16 +146,24 @@ func FindHandler(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Error open logfile", 500)
 			return
 		}
-
-		fmt.Fprintf(w, "\n\n ######### %s #########\n\n", log.path)
-
 		scan := bufio.NewScanner(file)
+
+		var tmp []string
 		for scan.Scan() {
-			if strings.Contains(strings.ToLower(scan.Text()), strings.ToLower(pattern)) {
-				fmt.Fprintln(w, scan.Text())
+			line := scan.Text()
+			if strings.Contains(line, pattern) {
+				tmp = append(tmp, line)
 			}
 		}
+		matches[log.path] = tmp
 	}
+	data := struct {
+		Pattern string
+		Matches map[string][]string
+	}{
+		pattern, matches,
+	}
+	renderTemplate(w, "ipinfo", data)
 }
 
 func WhoisHandler(w http.ResponseWriter, r *http.Request) {
@@ -150,15 +174,29 @@ func WhoisHandler(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("Not set pattern"))
 		return
 	}
-	//whois, err := whois.Whois(pattern, "whois.arin.net", "whois.pir.org")
-	whois, err := exec.Command("/usr/bin/whois", ip).Output()
+	whois, err := whois.Lookup(ip)
 
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 	}
 
-	w.Write(whois)
+	data := struct {
+		IP    string
+		Whois string
+	}{ip, string(whois.Data)}
 
+	renderTemplate(w, "whois", data)
+
+}
+func assetHandler(rw http.ResponseWriter, r *http.Request) {
+
+	css, err := Asset("assets/app.css")
+
+	if err != nil {
+		http.Error(rw, "wrong css", 500)
+	}
+	rw.Header().Set("Content-type", "text/css")
+	rw.Write(css)
 }
 
 func init() {
@@ -169,25 +207,99 @@ func init() {
 
 			return fmt.Sprintf("%.3f Mb", float64(bytes)/(1024*1024))
 		},
+		"nl2br": func(str string) template.HTML {
+
+			return template.HTML(strings.Replace(str, "\n", "<br />", -1))
+		},
 	}
 
-	tmpl, tmpl_err = template.New("test").Funcs(fmap).Parse(HTML)
+	templates := AssetNames()
+
+	t = make(map[string]*template.Template, len(templates))
+
+	var tb *template.Template
+
+	for _, tpl := range templates {
+
+		if strings.HasPrefix(tpl, "templates/includes") {
+
+			extoffset := strings.LastIndexByte(tpl, '.')
+
+			data, err := Asset(tpl)
+			if err != nil {
+				panic(err)
+			}
+			name := filepath.Base(tpl[:extoffset])
+			if tb == nil {
+				tb = template.New(name)
+			} else if tb.Name() == name {
+				continue
+			} else {
+				tb = tb.New(name)
+			}
+			_, err = tb.Parse(string(data))
+
+			if err != nil {
+				panic(err)
+			}
+
+		}
+	}
+
+	for _, tpl := range templates {
+
+		if strings.HasPrefix(tpl, "templates/includes") || strings.HasPrefix(tpl, "assets") {
+			continue
+		}
+
+		data, err := Asset(tpl)
+
+		if err != nil {
+			panic(err)
+		}
+		extoffset := strings.LastIndexByte(tpl, '.')
+
+		name := filepath.Base(tpl[:extoffset])
+
+		tb2, _ := tb.Clone()
+
+		tb2.New(name).Funcs(fmap)
+
+		_, err = tb2.Parse(string(data))
+
+		if err != nil {
+			panic(err)
+		}
+		t[name] = tb2
+	}
+
+	apool = sync.Pool{
+		New: func() interface{} { return make([]*Item, 10) },
+	}
 }
 
 func Run(storage *Items) {
 
-	//	const SOCKET = "/tmp/checkbot.sock"
+	var err error
+	const SOCKET = "/tmp/checkbot.sock"
 
-	//	if _, err := os.Stat(SOCKET); err == nil {
-	//
-	//		logchan <- "Remove old socket file"
-	//		os.Remove(SOCKET)
-	//	}
+	if _, err = os.Stat(SOCKET); err == nil {
 
-	//	listener, err := net.Listen("unix", SOCKET)
-	listener, err := net.Listen("tcp", ":9000")
+		logchan <- "Remove old socket file"
+		os.Remove(SOCKET)
+	}
+
+	listener, err := net.Listen("unix", SOCKET)
+	//listener, err := net.Listen("tcp", ":9000")
 
 	if err != nil {
+		panic(err)
+	}
+
+	err = os.Chmod(SOCKET, 0777)
+
+	if err != nil {
+		listener.Close()
 		panic(err)
 	}
 
@@ -195,14 +307,7 @@ func Run(storage *Items) {
 	http.HandleFunc("/info/ip", FindHandler)
 	http.HandleFunc("/info/ip/ban", storage.banHandler)
 	http.HandleFunc("/info/whois", WhoisHandler)
-
-	//	err = os.Chmod(SOCKET, 0777)
-	//
-	//	if err != nil {
-	//		panic(err)
-	//	}
-
-	pid.CreatePid()
+	http.HandleFunc("/info/assets/app.css", assetHandler)
 
 	fmt.Println(http.Serve(listener, nil))
 }
