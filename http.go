@@ -53,7 +53,7 @@ func (storage *Items) InfoHandler(w http.ResponseWriter, r *http.Request) {
 		bySort = func(i1, i2 *Item) bool { return i1.Bytes > i2.Bytes }
 
 	case "valid":
-		bySort = func(i1, i2 *Item) bool { return i1.White_hits > i2.White_hits }
+		bySort = func(i1, i2 *Item) bool { return i1.WhiteHits > i2.WhiteHits }
 
 	}
 	array := apool.Get().([]*Item)

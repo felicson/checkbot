@@ -78,14 +78,14 @@ const (
 type LogsList []*LogFile
 
 type Item struct {
-	IP         string
-	Hits       uint16
-	White_hits uint16
-	average    float32
-	White      bool
-	Banned     bool
-	Checked    bool
-	Bytes      uint64
+	IP        string
+	Hits      uint16
+	WhiteHits uint16
+	average   float32
+	White     bool
+	Banned    bool
+	Checked   bool
+	Bytes     uint64
 }
 
 type Items struct {
@@ -338,8 +338,8 @@ func execBan() {
 
 	for ip := range fwchan {
 
-		execCommand(fmt.Sprintf("sudo /sbin/ipset add blacklist %s", ip))
-		//execCommand(fmt.Sprintf("echo %s", ip))
+		//execCommand(fmt.Sprintf("sudo /sbin/ipset add blacklist %s", ip))
+		execCommand(fmt.Sprintf("echo %s", ip))
 	}
 }
 
@@ -411,7 +411,7 @@ func (ip *Item) IsBanned() bool {
 func (ip *Item) HitsBytesIncrement(bytes uint64, white bool) {
 
 	if white {
-		ip.White_hits += 1
+		ip.WhiteHits += 1
 	} else {
 		ip.Hits += 1
 	}
@@ -420,7 +420,7 @@ func (ip *Item) HitsBytesIncrement(bytes uint64, white bool) {
 
 func (ip *Item) DiffHits() int16 {
 
-	return int16(ip.Hits - ip.White_hits)
+	return int16(ip.Hits - ip.WhiteHits)
 }
 
 func (ip *Item) NotVerified() bool {
@@ -500,7 +500,7 @@ func SigHandler(sig os.Signal) {
 
 	case SIGHUP:
 		storage.Reset()
-		execCommand("sudo /sbin/ipset flush blacklist")
+		//execCommand("sudo /sbin/ipset flush blacklist")
 		logchan <- "SIGNAL HUP RECEIVE"
 
 	default:
