@@ -125,6 +125,7 @@ func (storage *Items) banHandler(w http.ResponseWriter, r *http.Request) {
 
 }
 
+//FindHandler find pattern in log files. Allowed any value
 func FindHandler(w http.ResponseWriter, r *http.Request) {
 
 	var pattern string
@@ -166,7 +167,8 @@ func FindHandler(w http.ResponseWriter, r *http.Request) {
 	renderTemplate(w, "ipinfo", data)
 }
 
-func WhoisHandler(w http.ResponseWriter, r *http.Request) {
+//WhoisHandler get whois info by ip address
+func (storage *Items) WhoisHandler(w http.ResponseWriter, r *http.Request) {
 
 	var ip string
 
@@ -174,16 +176,21 @@ func WhoisHandler(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("Not set pattern"))
 		return
 	}
+	if net.ParseIP(ip) == nil {
+		w.Write([]byte("Wrong IP address was received"))
+		return
+	}
 	whois, err := whois.Lookup(ip)
 
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 	}
+	storageIP, _ := storage.Get(ip)
 
 	data := struct {
-		IP    string
+		Item  *Item
 		Whois string
-	}{ip, string(whois.Data)}
+	}{storageIP, string(whois.Data)}
 
 	renderTemplate(w, "whois", data)
 
@@ -204,12 +211,13 @@ func init() {
 	fmap := map[string]interface{}{
 
 		"mgb": func(bytes uint64) string {
-
 			return fmt.Sprintf("%.3f Mb", float64(bytes)/(1024*1024))
 		},
 		"nl2br": func(str string) template.HTML {
-
 			return template.HTML(strings.Replace(str, "\n", "<br />", -1))
+		},
+		"validIP": func(str string) bool {
+			return net.ParseIP(str) != nil
 		},
 	}
 
@@ -278,6 +286,7 @@ func init() {
 	}
 }
 
+//Run webserver start
 func Run(storage *Items) {
 
 	var err error
@@ -306,7 +315,7 @@ func Run(storage *Items) {
 	http.HandleFunc("/info/", storage.InfoHandler)
 	http.HandleFunc("/info/ip", FindHandler)
 	http.HandleFunc("/info/ip/ban", storage.banHandler)
-	http.HandleFunc("/info/whois", WhoisHandler)
+	http.HandleFunc("/info/whois", storage.WhoisHandler)
 	http.HandleFunc("/info/assets/app.css", assetHandler)
 
 	fmt.Println(http.Serve(listener, nil))

@@ -179,6 +179,9 @@ func templatesIndexHtml() (*asset, error) {
 var _templatesIpinfoHtml = []byte(`{{ define "title"}}Поиск шаблона {{.Pattern}} в логах{{ end }}
 {{ define "content" }}
 <h1>Поиск {{.Pattern}}</h1>
+{{if .Pattern|validIP}}
+	<h3><a href="/info/whois?ip={{.Pattern}}">Проверка WHOIS</a></h3>
+{{end}}
 	<div class="fast-access">
 		<div>Быстрый переход</div>
 			{{range $logfile, $data := .Matches}}
@@ -212,16 +215,21 @@ func templatesIpinfoHtml() (*asset, error) {
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "templates/ipinfo.html", size: 633, mode: os.FileMode(420), modTime: time.Unix(1518602441, 0)}
+	info := bindataFileInfo{name: "templates/ipinfo.html", size: 740, mode: os.FileMode(420), modTime: time.Unix(1518845558, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
 
-var _templatesWhoisHtml = []byte(`{{ define "title" }}Whois {{ .IP}}{{ end }}
+var _templatesWhoisHtml = []byte(`{{ define "title" }}Whois {{with .Item}}{{.IP}}{{ end }}{{end}}
 {{ define "content" }}
-<h1>Whois {{ .IP}}</h1>
-<h3><a href="/info/ip?find={{.IP}}">Смотреть лог</a></h3>
-{{.Whois|nl2br}}
+    {{with .Item}}
+    <h1>
+        Whois {{.IP}}
+        {{if .Banned}} <sup>Banned</sup> {{end}}
+    </h1>
+    <h3><a href="/info/ip?find={{.IP}}">Смотреть лог</a></h3>
+    {{end}}
+    {{.Whois|nl2br}}
 {{ end }}
 `)
 
@@ -235,7 +243,7 @@ func templatesWhoisHtml() (*asset, error) {
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "templates/whois.html", size: 187, mode: os.FileMode(420), modTime: time.Unix(1518602441, 0)}
+	info := bindataFileInfo{name: "templates/whois.html", size: 312, mode: os.FileMode(420), modTime: time.Unix(1518608169, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }

@@ -338,8 +338,8 @@ func execBan() {
 
 	for ip := range fwchan {
 
-		//execCommand(fmt.Sprintf("sudo /sbin/ipset add blacklist %s", ip))
-		execCommand(fmt.Sprintf("echo %s", ip))
+		execCommand(fmt.Sprintf("sudo /sbin/ipset add blacklist %s", ip))
+		//execCommand(fmt.Sprintf("echo %s", ip))
 	}
 }
 
