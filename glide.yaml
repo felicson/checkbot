@@ -1,6 +1,11 @@
 package: checkbot
+ignore:
+- pid
 import:
 - package: github.com/MathieuTurcotte/go-trie
   subpackages:
   - gtrie
 - package: github.com/martinolsen/go-whois
+- package: github.com/shirou/gopsutil
+  subpackages:
+  - process

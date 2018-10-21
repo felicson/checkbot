@@ -5,12 +5,13 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"github.com/MathieuTurcotte/go-trie/gtrie"
 	"log"
 	"math"
 	"net"
 	"net/http"
 	"pid"
+
+	"github.com/MathieuTurcotte/go-trie/gtrie"
 	//_ "net/http/pprof"
 	"os"
 	"os/exec"
@@ -338,8 +339,8 @@ func execBan() {
 
 	for ip := range fwchan {
 
-		execCommand(fmt.Sprintf("sudo /sbin/ipset add blacklist %s", ip))
-		//execCommand(fmt.Sprintf("echo %s", ip))
+		//execCommand(fmt.Sprintf("sudo /sbin/ipset add blacklist %s", ip))
+		execCommand(fmt.Sprintf("echo %s", ip))
 	}
 }
 

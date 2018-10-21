@@ -1,37 +1,24 @@
 package main
 
-//go:generate go-bindata -nocompress templates/... assets/
 import (
 	"bufio"
 	"fmt"
-	"github.com/martinolsen/go-whois"
 	"html/template"
 	"net"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
+
+	"github.com/martinolsen/go-whois"
 )
 
 var (
 	tmpl     *template.Template
 	tmpl_err error
-	t        map[string]*template.Template
 
 	apool sync.Pool
 )
-
-func renderTemplate(w http.ResponseWriter, name string, data interface{}) error {
-
-	tpl, ok := t[name]
-
-	if !ok {
-		return fmt.Errorf("The template %s does not exist!", name)
-	}
-
-	return tpl.ExecuteTemplate(w, "base", data)
-}
 
 func (storage *Items) InfoHandler(w http.ResponseWriter, r *http.Request) {
 
@@ -195,91 +182,8 @@ func (storage *Items) WhoisHandler(w http.ResponseWriter, r *http.Request) {
 	renderTemplate(w, "whois", data)
 
 }
-func assetHandler(rw http.ResponseWriter, r *http.Request) {
-
-	css, err := Asset("assets/app.css")
-
-	if err != nil {
-		http.Error(rw, "wrong css", 500)
-	}
-	rw.Header().Set("Content-type", "text/css")
-	rw.Write(css)
-}
 
 func init() {
-
-	fmap := map[string]interface{}{
-
-		"mgb": func(bytes uint64) string {
-			return fmt.Sprintf("%.3f Mb", float64(bytes)/(1024*1024))
-		},
-		"nl2br": func(str string) template.HTML {
-			return template.HTML(strings.Replace(str, "\n", "<br />", -1))
-		},
-		"validIP": func(str string) bool {
-			return net.ParseIP(str) != nil
-		},
-	}
-
-	templates := AssetNames()
-
-	t = make(map[string]*template.Template, len(templates))
-
-	var tb *template.Template
-
-	for _, tpl := range templates {
-
-		if strings.HasPrefix(tpl, "templates/includes") {
-
-			extoffset := strings.LastIndexByte(tpl, '.')
-
-			data, err := Asset(tpl)
-			if err != nil {
-				panic(err)
-			}
-			name := filepath.Base(tpl[:extoffset])
-			if tb == nil {
-				tb = template.New(name)
-			} else if tb.Name() == name {
-				continue
-			} else {
-				tb = tb.New(name)
-			}
-			_, err = tb.Parse(string(data))
-
-			if err != nil {
-				panic(err)
-			}
-
-		}
-	}
-
-	for _, tpl := range templates {
-
-		if strings.HasPrefix(tpl, "templates/includes") || strings.HasPrefix(tpl, "assets") {
-			continue
-		}
-
-		data, err := Asset(tpl)
-
-		if err != nil {
-			panic(err)
-		}
-		extoffset := strings.LastIndexByte(tpl, '.')
-
-		name := filepath.Base(tpl[:extoffset])
-
-		tb2, _ := tb.Clone()
-
-		tb2.New(name).Funcs(fmap)
-
-		_, err = tb2.Parse(string(data))
-
-		if err != nil {
-			panic(err)
-		}
-		t[name] = tb2
-	}
 
 	apool = sync.Pool{
 		New: func() interface{} { return make([]*Item, 10) },
@@ -311,12 +215,14 @@ func Run(storage *Items) {
 		listener.Close()
 		panic(err)
 	}
+	initTempaltes()
 
 	http.HandleFunc("/info/", storage.InfoHandler)
 	http.HandleFunc("/info/ip", FindHandler)
 	http.HandleFunc("/info/ip/ban", storage.banHandler)
 	http.HandleFunc("/info/whois", storage.WhoisHandler)
 	http.HandleFunc("/info/assets/app.css", assetHandler)
+	http.HandleFunc("/info/processes", processHandler)
 
 	fmt.Println(http.Serve(listener, nil))
 }

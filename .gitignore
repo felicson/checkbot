@@ -2,3 +2,5 @@
 *.sw[p|o]
 
 checkbot
+
+vendor/*
