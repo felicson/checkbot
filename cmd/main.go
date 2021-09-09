@@ -67,7 +67,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("on new items %v\n", err)
 	}
-	//producer.AnalyzeEvent(users.HandleEvent)
+
 	_, err = logproducer.NewProducer(logs, users.HandleEvent)
 	if err != nil {
 		log.Fatal(err)

@@ -1,6 +1,7 @@
 package checkbot
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"log"
@@ -18,7 +19,9 @@ import (
 )
 
 var (
-	validBots = map[string]struct{}{
+	ErrWrongDateFormat = errors.New("wrong date format")
+	ErrWrongLogLine    = errors.New("wrong log string")
+	validBots          = map[string]struct{}{
 		"googlebot.com": {},
 		"google.com":    {},
 		"yandex.ru":     {},
@@ -118,27 +121,27 @@ func NewUsers(firewaller Firewaller, wl Whitelist) (*Users, error) {
 	return &u, nil
 }
 
-func (storage *Users) IsWhitePath(path *string) bool {
+func (users *Users) IsWhitePath(path *string) bool {
 
 	//	defer timeTrack(time.Now(),"check in white")
 	var l rune
 
 	//	storage.Lock()
-	trie2 := storage.trie
+	trie2 := users.trie
 
 	defer func() {
-		storage.trie = trie2
+		users.trie = trie2
 		//		storage.Unlock()
 	}()
 
 	for _, l = range *path {
 
-		curr := storage.trie.GetChild(l)
+		curr := users.trie.GetChild(l)
 
 		if curr == nil {
 			break
 		}
-		storage.trie = curr
+		users.trie = curr
 		if curr.Terminal {
 			return true
 		}
@@ -146,26 +149,26 @@ func (storage *Users) IsWhitePath(path *string) bool {
 	return false
 }
 
-func (storage *Users) Push(ip string, item *User) {
+func (users *Users) Push(ip string, item *User) {
 
-	storage.Lock()
-	storage.Row[ip] = item
-	storage.Unlock()
+	users.Lock()
+	users.Row[ip] = item
+	users.Unlock()
 }
 
-func (storage *Users) Get(ip string) (*User, bool) {
+func (users *Users) Get(ip string) (*User, bool) {
 
-	item, ok := storage.Row[ip]
+	item, ok := users.Row[ip]
 
 	return item, ok
 }
 
-func (storage *Users) Reset() {
+func (users *Users) Reset() {
 
-	storage.Lock()
-	defer storage.Unlock()
-	storage.Row = make(map[string]*User)
-	storage.today = today()
+	users.Lock()
+	defer users.Unlock()
+	users.Row = make(map[string]*User)
+	users.today = today()
 	//storage.array = make([]*Item, 0)
 }
 
@@ -220,41 +223,30 @@ func isBotValid(addr string) bool {
 	return false
 }
 
-func ExtractIP(row *string) (LogRecord, error) {
-	data := strings.SplitN(*row, " ", 11)[0:10]
+func ExtractIP(row []byte) (LogRecord, error) {
+	parts := bytes.SplitN(row, []byte(" "), 11)[0:10]
 
-	if len(data) < 10 {
-		return LogRecord{}, errors.New("Wrong log string")
+	if len(parts) < 10 {
+		return LogRecord{}, ErrWrongLogLine
 	}
 
-	if len(data[3]) < 13 {
-		return LogRecord{}, errors.New("Wrong date format")
+	if len(parts[3]) < 13 {
+		return LogRecord{}, ErrWrongDateFormat
 	}
-	date, err := time.Parse("02/Jan/2006", data[3][1:12])
+	date, err := time.Parse("02/Jan/2006", string(parts[3][1:12]))
 	if err != nil {
 		return LogRecord{}, fmt.Errorf("on time parse: %v", err)
 	}
-	code, _ := strconv.Atoi(data[8])
-	bytes, _ := strconv.ParseUint(data[9], 10, 64)
+	code, _ := strconv.Atoi(string(parts[8]))
+	downloaded, _ := strconv.ParseUint(string(parts[9]), 10, 64)
 
 	return LogRecord{
-		IP:         net.ParseIP(data[0]),
-		Path:       data[6],
+		IP:         net.ParseIP(string(parts[0])),
+		Path:       string(parts[6]),
 		Date:       date,
-		Bytes:      bytes,
+		Bytes:      downloaded,
 		StatusCode: code,
 	}, nil
-}
-
-func today() time.Time {
-	return time.Now().UTC().Truncate(24 * time.Hour)
-}
-
-func (u *Users) execBan() {
-
-	for ip := range u.IPChan {
-		u.firewaller.AddIP(ip)
-	}
 }
 
 func (users *Users) Lookup(user *User) {
@@ -285,6 +277,75 @@ func (users *Users) Lookup(user *User) {
 	users.IPChan <- user.IP
 }
 
+func (u *Users) execBan() {
+
+	for ip := range u.IPChan {
+		u.firewaller.AddIP(ip)
+	}
+}
+
+func (users *Users) HandleEvent(line []byte) error {
+
+	logRecord, err := ExtractIP(line)
+	if err != nil {
+		return fmt.Errorf("on extract ip error: %v\n", err)
+	}
+	ip := logRecord.IP.String()
+
+	if !logRecord.Date.Equal(users.today) {
+		return nil
+	}
+
+	if item, ok := users.Get(ip); ok {
+
+		if logRecord.StatusCode == 302 {
+			return nil
+		}
+
+		if users.IsWhitePath(&logRecord.Path) {
+			item.HitsBytesIncrement(logRecord.Bytes, true)
+			return nil
+		}
+
+		item.HitsBytesIncrement(logRecord.Bytes, false)
+
+		if item.NotVerified() && item.isExceededLimit() {
+			users.Lookup(item)
+		}
+		return nil
+	}
+	users.Push(ip, NewUser(ip, logRecord.Bytes))
+	return nil
+}
+
+func (users *Users) sigHandler(sig chan os.Signal) {
+
+	for {
+		select {
+		case s := <-sig:
+			switch s {
+			case SIGHUP:
+				users.Reset()
+				log.Println("Signal HUP received")
+
+			default:
+				log.Println("Signal KILL received")
+				os.Exit(0)
+			}
+		}
+	}
+}
+
+func NewUser(ip string, bytes uint64) *User {
+
+	return &User{
+		IP:        ip,
+		Hits:      1,
+		WhiteHits: 1,
+		Bytes:     bytes,
+	}
+}
+
 func (user *User) HitsBytesIncrement(bytes uint64, white bool) {
 
 	user.Bytes += bytes
@@ -305,64 +366,6 @@ func (user *User) NotVerified() bool {
 	return (!user.White && !user.Banned && user.Checked == false) || (!user.Checked && user.isExceededLimit())
 }
 
-func NewUser(ip string, bytes uint64) *User {
-
-	return &User{
-		IP:        ip,
-		Hits:      1,
-		WhiteHits: 1,
-		Bytes:     bytes,
-	}
-}
-
-func (storage *Users) HandleEvent(line string) error {
-
-	logRecord, err := ExtractIP(&line)
-	if err != nil {
-		return fmt.Errorf("on extract ip error: %v\n", err)
-	}
-	ip := logRecord.IP.String()
-
-	if !logRecord.Date.Equal(storage.today) {
-		return nil
-	}
-
-	if item, ok := storage.Get(ip); ok {
-
-		if logRecord.StatusCode == 302 {
-			return nil
-		}
-
-		if storage.IsWhitePath(&logRecord.Path) {
-			item.HitsBytesIncrement(logRecord.Bytes, true)
-			return nil
-		}
-
-		item.HitsBytesIncrement(logRecord.Bytes, false)
-
-		if item.NotVerified() && item.isExceededLimit() {
-			storage.Lookup(item)
-		}
-		return nil
-	}
-	storage.Push(ip, NewUser(ip, logRecord.Bytes))
-	return nil
-}
-
-func (storage *Users) sigHandler(sig chan os.Signal) {
-
-	for {
-		select {
-		case s := <-sig:
-			switch s {
-			case SIGHUP:
-				storage.Reset()
-				log.Println("Signal HUP received")
-
-			default:
-				log.Println("Signal KILL received")
-				os.Exit(0)
-			}
-		}
-	}
+func today() time.Time {
+	return time.Now().UTC().Truncate(24 * time.Hour)
 }

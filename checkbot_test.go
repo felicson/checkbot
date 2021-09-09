@@ -64,6 +64,6 @@ func BenchmarkExtractIP(b *testing.B) {
 
 	b.ReportAllocs()
 	for n := 0; n < b.N; n++ {
-		_, _ = ExtractIP(&logline)
+		_, _ = ExtractIP([]byte(logline))
 	}
 }

@@ -10,19 +10,19 @@ import (
 	"github.com/felicson/checkbot"
 )
 
-type eventFn func(event string) error
+type eventFn func(event []byte) error
 type LogFile struct {
 	ticker  *time.Ticker
 	logs    []*checkbot.LogFile
 	eventFn eventFn
 }
 
-func NewProducer(logs []string, efn eventFn) (LogFile, error) {
+func NewProducer(logs []string, eventParser eventFn) (LogFile, error) {
 	ticker := time.NewTicker(2 * time.Second)
-	l := LogFile{eventFn: efn}
+	l := LogFile{eventFn: eventParser}
 
 	for _, srcLog := range logs {
-		l.logs = append(l.logs, &checkbot.LogFile{File: &os.File{}, Path: srcLog})
+		l.logs = append(l.logs, &checkbot.LogFile{Path: srcLog})
 	}
 
 	go func() {
@@ -33,32 +33,25 @@ func NewProducer(logs []string, efn eventFn) (LogFile, error) {
 	return l, nil
 }
 
-func (l *LogFile) AnalyzeEvent(cb func(event string) error) error {
-	l.eventFn = cb
-	return nil
-}
-
 func (l *LogFile) logsReader() {
 
 	for _, lf := range l.logs {
 
-		func(lf *checkbot.LogFile, ef eventFn) {
+		func(lf *checkbot.LogFile) {
 
 			var err error
 
-			lf.File, err = os.Open(lf.Path)
+			webLog, err := os.Open(lf.Path)
 
 			if err != nil {
 				log.Printf("err on open file %q - %v", lf.Path, err)
 				return
 			}
-			defer lf.File.Close()
+			defer webLog.Close()
 
-			if !lf.Seek() {
+			if !lf.Seek(webLog) {
 				return
 			}
-
-			lf.SetOffset()
 
 			tmpFile, err := os.CreateTemp("/tmp", "checkbot_")
 			if err != nil {
@@ -69,7 +62,7 @@ func (l *LogFile) logsReader() {
 				tmpFile.Close()
 				os.Remove(tmpFile.Name())
 			}()
-			if written, err := io.Copy(tmpFile, lf.File); err != nil {
+			if written, err := io.Copy(tmpFile, webLog); err != nil {
 				log.Printf("err on copy of tail of log file to tmp file: %v", err)
 				return
 			} else {
@@ -81,14 +74,13 @@ func (l *LogFile) logsReader() {
 			scann := bufio.NewScanner(tmpFile)
 
 			for scann.Scan() {
-				line := scann.Text()
-				if err := ef(line); err != nil {
+				if err := l.eventFn(scann.Bytes()); err != nil {
 					log.Printf("on call eventFn err: %v\n", err)
 				}
 			}
 			if scann.Err() != nil {
-				log.Printf("scan err: %v\n", err)
+				log.Printf("logfile %s, scan err: %v\n", tmpFile.Name(), err)
 			}
-		}(lf, l.eventFn)
+		}(lf)
 	}
 }

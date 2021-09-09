@@ -1,6 +1,7 @@
 package checkbot
 
 import (
+	"io"
 	"log"
 	"os"
 )
@@ -12,14 +13,9 @@ type LogFile struct {
 	Path   string
 }
 
-func (l *LogFile) SetOffset() {
+func (l *LogFile) Seek(rdr io.Seeker) bool {
 
-	l.offset, _ = fileSize(l.File)
-}
-
-func (l *LogFile) Seek() bool {
-
-	fsize, _ := fileSize(l.File)
+	fsize, _ := fileSize(l.Path)
 
 	if fsize == l.offset {
 		return false
@@ -29,16 +25,18 @@ func (l *LogFile) Seek() bool {
 		l.offset = 0
 	}
 
-	if _, err := l.File.Seek(l.offset, 0); err != nil {
-		log.Println(err)
+	if _, err := rdr.Seek(l.offset, 0); err != nil {
+		log.Printf("on seek error: %v\n", err)
 		return false
 	}
+	l.offset = fsize
+
 	return true
 }
 
-func fileSize(file *os.File) (int64, error) {
+func fileSize(file string) (int64, error) {
 
-	fstat, err := file.Stat()
+	fstat, err := os.Stat(file)
 
 	if err != nil {
 		return 0, err
