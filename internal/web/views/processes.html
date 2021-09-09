@@ -1,0 +1,27 @@
+{{define "title"}}Список процессов хоста{{end}}
+{{define "content"}}
+
+<table class="table-bot">
+    <thead>
+        <tr>
+            <th>PID</th>
+            <th>Owner</th>
+            <th>CPU %</th>
+            <th>Mem %</th>
+            <th> Process </th>
+        </tr>
+    </thead>
+    {{with .}}
+    {{range $index,$elem := .}}
+        <tr>
+            <td> {{.PID}} </td>
+            <td> {{.User}} </td>
+            <td> {{.CPU|float}} </td>
+            <td> {{.Mem|float}} </td>
+            <td> <span title="{{.Cmdline}}">{{.Name}}</span></td>
+        </tr>
+    {{end}}
+    {{end}}
+</table>
+    
+{{end}}

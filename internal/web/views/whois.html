@@ -1,0 +1,11 @@
+{{ define "title" }}Whois {{with .Item}}{{.IP}}{{ end }}{{end}}
+{{ define "content" }}
+    {{with .Item}}
+    <h1>
+        Whois {{.IP}}
+        {{if .Banned}} <sup>Banned</sup> {{end}}
+    </h1>
+    <h3><a href="/info/ip?find={{.IP}}">Смотреть лог</a></h3>
+    {{end}}
+    {{.Whois|nl2br}}
+{{ end }}

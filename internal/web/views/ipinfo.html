@@ -1,0 +1,27 @@
+{{ define "title"}}Поиск шаблона {{.Pattern}} в логах{{ end }}
+{{ define "content" }}
+<h1>Поиск {{.Pattern}}</h1>
+{{if .Pattern|validIP}}
+	<h3><a href="/info/whois?ip={{.Pattern}}">Проверка WHOIS</a></h3>
+{{end}}
+	<div class="fast-access">
+		<div>Быстрый переход</div>
+			{{range $logfile, $data := .Matches}}
+
+				{{ if $data }}
+				<div><a href="#{{ $logfile }}">{{$logfile}}</a><sup>{{ $data|len}} найдено</sup></div>
+				{{ end }}
+			{{ end }}
+		</div>
+
+		{{range $logfile,$data := .Matches}}
+			{{ if $data }}
+				<a name="{{$logfile}}"></a>
+				
+				<h2>в файле {{ $logfile }}</h2>
+				{{ range $data}}
+					<div> {{ . }}</div>
+				{{end }} 
+			{{end }}
+		{{ end }}
+{{ end }}
