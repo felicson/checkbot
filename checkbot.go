@@ -49,8 +49,6 @@ var (
 		"/user/get_reg_city",
 		"/user/stock_ajax"}
 
-	logchan chan string
-
 	wlist Whitelist
 )
 
@@ -232,7 +230,7 @@ func ExtractIP(row *string) (LogRecord, error) {
 	if len(data[3]) < 13 {
 		return LogRecord{}, errors.New("Wrong date format")
 	}
-	date, err := time.Parse("02/Jan/2006:15:04:05 +0700", data[3][1:12])
+	date, err := time.Parse("02/Jan/2006", data[3][1:12])
 	if err != nil {
 		return LogRecord{}, fmt.Errorf("on time parse: %v", err)
 	}
@@ -242,14 +240,14 @@ func ExtractIP(row *string) (LogRecord, error) {
 	return LogRecord{
 		IP:         net.ParseIP(data[0]),
 		Path:       data[6],
-		Date:       date.Truncate(24 * time.Hour),
+		Date:       date,
 		Bytes:      bytes,
 		StatusCode: code,
 	}, nil
 }
 
 func today() time.Time {
-	return time.Now().Truncate(24 * time.Hour)
+	return time.Now().UTC().Truncate(24 * time.Hour)
 }
 
 func (u *Users) execBan() {
@@ -325,7 +323,7 @@ func (storage *Users) HandleEvent(line string) error {
 	}
 	ip := logRecord.IP.String()
 
-	if logRecord.Date != storage.today {
+	if !logRecord.Date.Equal(storage.today) {
 		return nil
 	}
 

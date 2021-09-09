@@ -3,6 +3,7 @@ package web
 import (
 	"bufio"
 	"errors"
+	"fmt"
 	"html/template"
 	"log"
 	"math"
@@ -13,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/felicson/checkbot"
 	"github.com/martinolsen/go-whois"
@@ -100,7 +102,7 @@ type Server struct {
 	firewall checkbot.Firewaller
 }
 
-func (s Server) InfoHandler(w http.ResponseWriter, r *http.Request) {
+func (s *Server) InfoHandler(w http.ResponseWriter, r *http.Request) {
 
 	var p string
 
@@ -144,7 +146,6 @@ func (s Server) InfoHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	renderTemplate(w, "index", bots)
-
 }
 
 func (s *Server) banHandler(w http.ResponseWriter, r *http.Request) {
@@ -270,8 +271,10 @@ func init() {
 	}
 }
 
-func NewServer() *Server {
-	return &Server{}
+func NewServer(users *checkbot.Users) *Server {
+	return &Server{
+		users: users,
+	}
 }
 
 func (s *Server) Stop() {
@@ -279,10 +282,10 @@ func (s *Server) Stop() {
 }
 
 //Run webserver start
-func (s *Server) Run(storage *checkbot.Users) error {
+func (s *Server) Run() error {
 
 	var err error
-	errChan := make(chan error, 1)
+	errChan := make(chan error)
 
 	if _, err = os.Stat(SOCKET); err == nil {
 
@@ -290,17 +293,17 @@ func (s *Server) Run(storage *checkbot.Users) error {
 		os.Remove(SOCKET)
 	}
 
-	listener, err := net.Listen("unix", SOCKET)
-	//listener, err := net.Listen("tcp", ":9000")
+	//listener, err := net.Listen("unix", SOCKET)
+	listener, err := net.Listen("tcp4", "0.0.0.0:9001")
 
 	if err != nil {
 		return err
 	}
-	defer listener.Close()
+	//defer listener.Close()
 
-	if err = os.Chmod(SOCKET, 0777); err != nil {
-		return err
-	}
+	//if err = os.Chmod(SOCKET, 0777); err != nil {
+	//	return err
+	//}
 	initTempaltes()
 
 	http.HandleFunc("/info/", s.InfoHandler)
@@ -312,8 +315,14 @@ func (s *Server) Run(storage *checkbot.Users) error {
 
 	go func() {
 		if err := http.Serve(listener, nil); err != nil {
+			fmt.Println(err)
 			errChan <- err
 		}
 	}()
-	return <-errChan
+	select {
+	case err := <-errChan:
+		return err
+	case <-time.After(2 * time.Second):
+		return nil
+	}
 }

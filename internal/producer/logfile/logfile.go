@@ -10,15 +10,16 @@ import (
 	"github.com/felicson/checkbot"
 )
 
+type eventFn func(event string) error
 type LogFile struct {
 	ticker  *time.Ticker
 	logs    []*checkbot.LogFile
-	eventFn func(event string) error
+	eventFn eventFn
 }
 
-func NewProducer(logs []string) (LogFile, error) {
+func NewProducer(logs []string, efn eventFn) (LogFile, error) {
 	ticker := time.NewTicker(2 * time.Second)
-	l := LogFile{}
+	l := LogFile{eventFn: efn}
 
 	for _, srcLog := range logs {
 		l.logs = append(l.logs, &checkbot.LogFile{File: &os.File{}, Path: srcLog})
@@ -41,7 +42,7 @@ func (l *LogFile) logsReader() {
 
 	for _, lf := range l.logs {
 
-		func(lf *checkbot.LogFile) {
+		func(lf *checkbot.LogFile, ef eventFn) {
 
 			var err error
 
@@ -59,7 +60,7 @@ func (l *LogFile) logsReader() {
 
 			lf.SetOffset()
 
-			tmpFile, err := os.CreateTemp("/tmp", "checkbot")
+			tmpFile, err := os.CreateTemp("/tmp", "checkbot_")
 			if err != nil {
 				log.Printf("err on make tmp file: %v", err)
 				return
@@ -68,19 +69,26 @@ func (l *LogFile) logsReader() {
 				tmpFile.Close()
 				os.Remove(tmpFile.Name())
 			}()
-			if _, err := io.Copy(tmpFile, lf.File); err != nil {
+			if written, err := io.Copy(tmpFile, lf.File); err != nil {
 				log.Printf("err on copy of tail of log file to tmp file: %v", err)
 				return
+			} else {
+				log.Printf("written %d bytes, from %s to %s\n", written, lf.Path, tmpFile.Name())
+			}
+			if _, err := tmpFile.Seek(0, 0); err != nil {
+				log.Println(err)
 			}
 			scann := bufio.NewScanner(tmpFile)
 
 			for scann.Scan() {
 				line := scann.Text()
-				l.eventFn(line)
+				if err := ef(line); err != nil {
+					log.Printf("on call eventFn err: %v\n", err)
+				}
 			}
 			if scann.Err() != nil {
 				log.Printf("scan err: %v\n", err)
 			}
-		}(lf)
+		}(lf, l.eventFn)
 	}
 }

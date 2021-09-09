@@ -34,6 +34,8 @@ func main() {
 		return
 	}
 
+	done := make(chan bool, 1)
+
 	banlogout, err := os.OpenFile(logfile, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0664)
 
 	if err != nil {
@@ -61,21 +63,21 @@ func main() {
 	}
 	file.Close()
 
-	producer, err := logproducer.NewProducer(logs)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	users, err := checkbot.NewUsers(&firewall.F{}, wlist)
+	users, err := checkbot.NewUsers(&firewall.Mock{}, wlist)
 	if err != nil {
 		log.Fatalf("on new items %v\n", err)
 	}
-	producer.AnalyzeEvent(users.HandleEvent)
+	//producer.AnalyzeEvent(users.HandleEvent)
+	_, err = logproducer.NewProducer(logs, users.HandleEvent)
+	if err != nil {
+		log.Fatal(err)
+	}
 
-	server := web.NewServer()
+	server := web.NewServer(users)
 
-	if err := server.Run(users); err != nil {
+	if err := server.Run(); err != nil {
 		log.Fatal(err)
 	}
 	defer server.Stop()
+	<-done
 }
