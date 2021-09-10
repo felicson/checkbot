@@ -1,10 +1,9 @@
 package web
 
 import (
-	"bufio"
 	"errors"
-	"fmt"
 	"html/template"
+	"io"
 	"log"
 	"math"
 	"net"
@@ -12,11 +11,12 @@ import (
 	"os"
 	"sort"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/felicson/checkbot"
+	"github.com/felicson/checkbot/internal/producer"
+	"github.com/felicson/checkbot/internal/web/view"
 	"github.com/martinolsen/go-whois"
 )
 
@@ -97,12 +97,14 @@ func (i *ItemsList) Offset(start string) (*ItemsList, error) {
 }
 
 type Server struct {
-	users    *checkbot.Users
-	logs     []checkbot.LogFile
-	firewall checkbot.Firewaller
+	users      *checkbot.Users
+	searcher   producer.Searcher
+	firewaller checkbot.Firewaller
+	listener   net.Listener
+	view       *view.View
 }
 
-func (s *Server) InfoHandler(w http.ResponseWriter, r *http.Request) {
+func (s *Server) infoHandler(w http.ResponseWriter, r *http.Request) {
 
 	var p string
 
@@ -145,7 +147,7 @@ func (s *Server) InfoHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	renderTemplate(w, "index", bots)
+	s.view.Render(w, "index", bots)
 }
 
 func (s *Server) banHandler(w http.ResponseWriter, r *http.Request) {
@@ -153,7 +155,7 @@ func (s *Server) banHandler(w http.ResponseWriter, r *http.Request) {
 	err := r.ParseForm()
 
 	if err != nil {
-		w.Write([]byte("Wrong input data"))
+		io.WriteString(w, "Wrong input data")
 		return
 	}
 
@@ -161,37 +163,35 @@ func (s *Server) banHandler(w http.ResponseWriter, r *http.Request) {
 
 	action := r.FormValue("action")
 
-	var firewallAction func(string)
+	var firewallAction func(string) error
 	var itemValue bool
 
 	switch action {
 
 	case "ban":
-		firewallAction = s.firewall.AddIP
+		firewallAction = s.firewaller.AddIP
 		itemValue = true
 
 	case "unban":
-		firewallAction = s.firewall.RemoveIP
-		itemValue = false
+		firewallAction = s.firewaller.RemoveIP
 
 	default:
-		w.Write([]byte("Wrong input data"))
+		io.WriteString(w, "Wrong input data")
 		return
 	}
 
 	if user, ok := s.users.Get(ip); ok {
 		user.Banned = itemValue
-		firewallAction(user.IP)
+		_ = firewallAction(user.IP)
 		http.Redirect(w, r, "/info/", 302)
 		return
 
 	}
-	w.Write([]byte("Wrong input data"))
-
+	io.WriteString(w, "Wrong input data")
 }
 
-//FindHandler find pattern in log files. Allowed any value
-func (s *Server) FindHandler(w http.ResponseWriter, r *http.Request) {
+//findHandler find pattern in log files. Allowed any value
+func (s *Server) findHandler(w http.ResponseWriter, r *http.Request) {
 
 	var pattern string
 
@@ -199,53 +199,32 @@ func (s *Server) FindHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Pattern not set", 500)
 		return
 	}
-
-	matches := make(map[string][]string)
-
-	for _, log := range s.logs {
-
-		func(log checkbot.LogFile) {
-			file, err := os.Open(log.Path)
-
-			defer file.Close()
-
-			if err != nil {
-				http.Error(w, "Error open logfile", 500)
-				return
-			}
-			scan := bufio.NewScanner(file)
-
-			var tmp []string
-			for scan.Scan() {
-				line := scan.Text()
-				if strings.Contains(line, pattern) {
-					tmp = append(tmp, line)
-				}
-			}
-			matches[log.Path] = tmp
-
-		}(log)
+	matches, err := s.searcher.SearchByPattern(pattern)
+	if err != nil {
+		http.Error(w, "err on search by pattern", 500)
+		return
 	}
+
 	data := struct {
 		Pattern string
-		Matches map[string][]string
+		Matches producer.Matchers
 	}{
 		pattern, matches,
 	}
-	renderTemplate(w, "ipinfo", data)
+	s.view.Render(w, "ipinfo", data)
 }
 
-//WhoisHandler get whois info by ip address
-func (s *Server) WhoisHandler(w http.ResponseWriter, r *http.Request) {
+//whoisHandler get whois info by ip address
+func (s *Server) whoisHandler(w http.ResponseWriter, r *http.Request) {
 
 	var ip string
 
 	if ip = r.FormValue("ip"); ip == "" {
-		w.Write([]byte("Not set pattern"))
+		io.WriteString(w, "Not set pattern")
 		return
 	}
 	if net.ParseIP(ip) == nil {
-		w.Write([]byte("Wrong IP address was received"))
+		io.WriteString(w, "Wrong IP address was received")
 		return
 	}
 	whois, err := whois.Lookup(ip)
@@ -253,14 +232,14 @@ func (s *Server) WhoisHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 	}
-	storageIP, _ := s.users.Get(ip)
+	user, _ := s.users.Get(ip)
 
 	data := struct {
 		Item  *checkbot.User
 		Whois string
-	}{storageIP, string(whois.Data)}
+	}{user, string(whois.Data)}
 
-	renderTemplate(w, "whois", data)
+	s.view.Render(w, "whois", data)
 
 }
 
@@ -271,14 +250,18 @@ func init() {
 	}
 }
 
-func NewServer(users *checkbot.Users) *Server {
+func NewServer(users *checkbot.Users, searcher producer.Searcher, firewaller checkbot.Firewaller) *Server {
+
 	return &Server{
-		users: users,
+		users:      users,
+		searcher:   searcher,
+		firewaller: firewaller,
 	}
 }
 
 func (s *Server) Stop() {
 	os.Remove(SOCKET)
+	s.listener.Close()
 }
 
 //Run webserver start
@@ -295,34 +278,40 @@ func (s *Server) Run() error {
 
 	//listener, err := net.Listen("unix", SOCKET)
 	listener, err := net.Listen("tcp4", "0.0.0.0:9001")
-
 	if err != nil {
 		return err
 	}
-	//defer listener.Close()
+	s.listener = listener
 
-	//if err = os.Chmod(SOCKET, 0777); err != nil {
-	//	return err
-	//}
-	initTempaltes()
+	if s.listener.Addr().Network() == "unix" {
+		if err = os.Chmod(SOCKET, 0777); err != nil {
+			return err
+		}
+	}
 
-	http.HandleFunc("/info/", s.InfoHandler)
-	http.HandleFunc("/info/ip", s.FindHandler)
+	v, err := view.NewView()
+	if err != nil {
+		return err
+	}
+	s.view = v
+
+	http.HandleFunc("/info/", s.infoHandler)
+	http.HandleFunc("/info/ip", s.findHandler)
 	http.HandleFunc("/info/ip/ban", s.banHandler)
-	http.HandleFunc("/info/whois", s.WhoisHandler)
-	http.HandleFunc("/info/assets/app.css", assetHandler)
-	http.HandleFunc("/info/processes", processHandler)
+	http.HandleFunc("/info/whois", s.whoisHandler)
+	http.HandleFunc("/info/processes", s.processHandler)
+
+	http.HandleFunc("/info/assets/", s.view.AssetHandler)
 
 	go func() {
-		if err := http.Serve(listener, nil); err != nil {
-			fmt.Println(err)
+		if err := http.Serve(s.listener, nil); err != nil {
 			errChan <- err
 		}
 	}()
 	select {
 	case err := <-errChan:
 		return err
-	case <-time.After(2 * time.Second):
+	case <-time.After(200 * time.Millisecond):
 		return nil
 	}
 }

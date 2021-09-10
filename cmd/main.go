@@ -62,18 +62,19 @@ func main() {
 		logs = append(logs, reader.Text())
 	}
 	file.Close()
+	firewaller := &firewall.Mock{}
 
-	users, err := checkbot.NewUsers(&firewall.Mock{}, wlist)
+	users, err := checkbot.NewUsers(firewaller, wlist)
 	if err != nil {
 		log.Fatalf("on new items %v\n", err)
 	}
 
-	_, err = logproducer.NewProducer(logs, users.HandleEvent)
+	producer, err := logproducer.NewProducer(logs, users.HandleEvent)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	server := web.NewServer(users)
+	server := web.NewServer(users, &producer, firewaller)
 
 	if err := server.Run(); err != nil {
 		log.Fatal(err)

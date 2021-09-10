@@ -15,11 +15,11 @@ type ProcessInfo struct {
 	Mem     float32
 }
 
-func processHandler(w http.ResponseWriter, req *http.Request) {
+func (s *Server) processHandler(w http.ResponseWriter, req *http.Request) {
 
 	processes, err := process.Processes()
 	if err != nil {
-		panic(err)
+		http.Error(w, err.Error(), 500)
 	}
 	var processInfos []*ProcessInfo
 
@@ -33,5 +33,5 @@ func processHandler(w http.ResponseWriter, req *http.Request) {
 
 		processInfos = append(processInfos, &ProcessInfo{process.Pid, name, cmdline, user, float32(cpu), mem})
 	}
-	renderTemplate(w, "processes", processInfos)
+	s.view.Render(w, "processes", processInfos)
 }

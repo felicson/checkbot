@@ -60,8 +60,8 @@ const (
 )
 
 type Firewaller interface {
-	AddIP(string)
-	RemoveIP(string)
+	AddIP(string) error
+	RemoveIP(string) error
 }
 
 type LogRecord struct {
