@@ -1,13 +1,13 @@
 package checkbot
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"log"
 	"net"
 	"os/signal"
 	"sort"
+	"strings"
 
 	"github.com/MathieuTurcotte/go-trie/gtrie"
 	"github.com/felicson/checkbot/internal/flags"
@@ -268,8 +268,8 @@ func (user *User) NotVerified() bool {
 }
 
 func ExtractIP(row []byte) (LogRecord, error) {
-	parts := bytes.SplitN(row, []byte(" "), 11)[0:10]
-
+	s := string(row)
+	parts := strings.SplitN(s, " ", 11)
 	if len(parts) < 10 {
 		return LogRecord{}, ErrWrongLogLine
 	}
@@ -277,15 +277,15 @@ func ExtractIP(row []byte) (LogRecord, error) {
 	if len(parts[3]) < 13 {
 		return LogRecord{}, ErrWrongDateFormat
 	}
-	date, err := time.Parse("02/Jan/2006", string(parts[3][1:12]))
+	date, err := time.Parse("02/Jan/2006", parts[3][1:12])
 	if err != nil {
 		return LogRecord{}, fmt.Errorf("on time parse: %v", err)
 	}
-	code, _ := strconv.Atoi(string(parts[8]))
-	downloaded, _ := strconv.ParseUint(string(parts[9]), 10, 64)
+	code, _ := strconv.Atoi(parts[8])
+	downloaded, _ := strconv.ParseUint(parts[9], 10, 64)
 
 	return LogRecord{
-		IP:         net.ParseIP(string(parts[0])),
+		IP:         net.ParseIP(parts[0]),
 		Path:       string(parts[6]),
 		Date:       date,
 		Bytes:      downloaded,
