@@ -23,6 +23,26 @@ func TestBotValid(t *testing.T) {
 	}
 }
 
+func TestIsWhitePath(t *testing.T) {
+	tests := []struct {
+		name   string
+		expect bool
+	}{
+		{name: "/st-324.css", expect: true},
+		{name: "/unknown/", expect: false},
+	}
+	users, _ := NewUsers(&firewall.Mock{}, nil)
+	for _, tc := range tests {
+
+		t.Run(tc.name, func(t *testing.T) {
+			if got := users.IsWhitePath(tc.name); got != tc.expect {
+				t.Fatalf("expect %v, got: %v", tc.expect, got)
+			}
+		})
+
+	}
+}
+
 func BenchmarkBotValid(b *testing.B) {
 
 	for n := 0; n < b.N; n++ {
@@ -35,7 +55,7 @@ func BenchmarkIsWhitePath(b *testing.B) {
 	data, _ := NewUsers(&firewall.Mock{}, nil)
 	path := "/ajax/test"
 	for n := 0; n < b.N; n++ {
-		data.IsWhitePath(&path)
+		data.IsWhitePath(path)
 	}
 }
 

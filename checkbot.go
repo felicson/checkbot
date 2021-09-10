@@ -6,13 +6,14 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"os/signal"
+	"sort"
 
 	"github.com/MathieuTurcotte/go-trie/gtrie"
 	"github.com/felicson/checkbot/internal/flags"
 
 	//_ "net/http/pprof"
 	"os"
-	"os/signal"
 	"strconv"
 	"sync"
 	"syscall"
@@ -34,10 +35,10 @@ var (
 	}
 
 	whitePath = []string{
+		"/captcha",
 		"/ajax/",
 		"/apple-touch-icon",
 		"/board/context_if",
-		"/captcha",
 		"/context_if",
 		"/favicon.ico",
 		"/product_upload",
@@ -93,6 +94,7 @@ type Users struct {
 
 func NewUsers(firewaller Firewaller, wl flags.Whitelist) (*Users, error) {
 
+	sort.Strings(whitePath)
 	trie, err := gtrie.Create(whitePath)
 
 	if err != nil {
@@ -108,35 +110,22 @@ func NewUsers(firewaller Firewaller, wl flags.Whitelist) (*Users, error) {
 		wlist:      wl,
 	}
 
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)
-
-	go u.loop(sigChan)
+	go u.loop()
 
 	return &u, nil
 }
 
-func (users *Users) IsWhitePath(path *string) bool {
+//IsWhitePath check is received path are contains in white list
+func (users *Users) IsWhitePath(path string) bool {
 
-	//	defer timeTrack(time.Now(),"check in white")
-	var l rune
+	tmpTrie := users.trie
 
-	//	storage.Lock()
-	trie2 := users.trie
-
-	defer func() {
-		users.trie = trie2
-		//		storage.Unlock()
-	}()
-
-	for _, l = range *path {
-
-		curr := users.trie.GetChild(l)
-
+	for _, l := range path {
+		curr := tmpTrie.GetChild(l)
 		if curr == nil {
 			break
 		}
-		users.trie = curr
+		tmpTrie = curr
 		if curr.Terminal {
 			return true
 		}
@@ -157,7 +146,8 @@ func (users *Users) Get(ip string) (*User, bool) {
 	return item, ok
 }
 
-func (users *Users) Reset() {
+//Truncate clear all existing data
+func (users *Users) Truncate() {
 
 	users.Lock()
 	defer users.Unlock()
@@ -201,17 +191,13 @@ func (users *Users) HandleEvent(line []byte) error {
 	}
 	ip := logRecord.IP.String()
 
-	if !logRecord.Date.Equal(users.today) {
+	if !logRecord.Date.Equal(users.today) || logRecord.StatusCode == 302 {
 		return nil
 	}
 
 	if item, ok := users.Get(ip); ok {
 
-		if logRecord.StatusCode == 302 {
-			return nil
-		}
-
-		if users.IsWhitePath(&logRecord.Path) {
+		if users.IsWhitePath(logRecord.Path) {
 			item.HitsBytesIncrement(logRecord.Bytes, true)
 			return nil
 		}
@@ -227,7 +213,10 @@ func (users *Users) HandleEvent(line []byte) error {
 	return nil
 }
 
-func (users *Users) loop(sig chan os.Signal) {
+func (users *Users) loop() {
+
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)
 
 	for {
 		select {
@@ -238,7 +227,7 @@ func (users *Users) loop(sig chan os.Signal) {
 		case s := <-sig:
 			switch s {
 			case syscall.SIGHUP:
-				users.Reset()
+				users.Truncate()
 				log.Println("Signal HUP received")
 
 			default:
@@ -250,7 +239,6 @@ func (users *Users) loop(sig chan os.Signal) {
 }
 
 func NewUser(ip string, bytes uint64) *User {
-
 	return &User{
 		IP:        ip,
 		Hits:      1,
