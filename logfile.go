@@ -9,7 +9,6 @@ import (
 //LogFile present web server logfile
 type LogFile struct {
 	offset int64
-	File   *os.File
 	Path   string
 }
 
