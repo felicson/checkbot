@@ -276,8 +276,8 @@ func (s *Server) Run() error {
 		os.Remove(SOCKET)
 	}
 
-	//listener, err := net.Listen("unix", SOCKET)
-	listener, err := net.Listen("tcp4", "0.0.0.0:9001")
+	listener, err := net.Listen("unix", SOCKET)
+	//listener, err := net.Listen("tcp4", "0.0.0.0:9001")
 	if err != nil {
 		return err
 	}

@@ -8,11 +8,12 @@ import (
 	"net"
 
 	"github.com/MathieuTurcotte/go-trie/gtrie"
+	"github.com/felicson/checkbot/internal/flags"
+
 	//_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"strconv"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -32,7 +33,8 @@ var (
 		"sputnik.ru":    {},
 	}
 
-	whitePath = []string{"/ajax/",
+	whitePath = []string{
+		"/ajax/",
 		"/apple-touch-icon",
 		"/board/context_if",
 		"/captcha",
@@ -51,12 +53,6 @@ var (
 		"/user/get_domain",
 		"/user/get_reg_city",
 		"/user/stock_ajax"}
-
-	wlist Whitelist
-)
-
-const (
-	SIGHUP = syscall.SIGHUP
 )
 
 type Firewaller interface {
@@ -92,9 +88,10 @@ type Users struct {
 	trie       *gtrie.Node
 	firewaller Firewaller
 	IPChan     chan string
+	wlist      flags.Whitelist
 }
 
-func NewUsers(firewaller Firewaller, wl Whitelist) (*Users, error) {
+func NewUsers(firewaller Firewaller, wl flags.Whitelist) (*Users, error) {
 
 	trie, err := gtrie.Create(whitePath)
 
@@ -102,21 +99,19 @@ func NewUsers(firewaller Firewaller, wl Whitelist) (*Users, error) {
 		return nil, err
 	}
 
-	wlist = wl
-
 	u := Users{
 		Row:        make(map[string]*User),
 		today:      today(),
 		trie:       trie,
 		firewaller: firewaller,
 		IPChan:     make(chan string, 10),
+		wlist:      wl,
 	}
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)
 
-	go u.sigHandler(sigChan)
-	go u.execBan()
+	go u.loop(sigChan)
 
 	return &u, nil
 }
@@ -149,17 +144,16 @@ func (users *Users) IsWhitePath(path *string) bool {
 	return false
 }
 
-func (users *Users) Push(ip string, item *User) {
+func (users *Users) Push(item *User) {
 
 	users.Lock()
-	users.Row[ip] = item
-	users.Unlock()
+	defer users.Unlock()
+	users.Row[item.IP] = item
 }
 
 func (users *Users) Get(ip string) (*User, bool) {
 
 	item, ok := users.Row[ip]
-
 	return item, ok
 }
 
@@ -169,84 +163,6 @@ func (users *Users) Reset() {
 	defer users.Unlock()
 	users.Row = make(map[string]*User)
 	users.today = today()
-	//storage.array = make([]*Item, 0)
-}
-
-func timeTrack(start time.Time, name string) {
-	fmt.Printf("%s name took %s \n", name, (time.Since(start) / time.Nanosecond))
-}
-
-type Whitelist map[string]bool
-
-func (i *Whitelist) String() string {
-	return fmt.Sprint(*i)
-}
-
-func (i *Whitelist) Set(value string) error {
-	if len(*i) > 0 {
-		return errors.New("ignoreip flag already set")
-	}
-	if !strings.Contains(value, ".") {
-		return errors.New("ignoreip flag has wrong value")
-	}
-	*i = make(Whitelist)
-	for _, v := range strings.Split(value, ",") {
-		(*i)[v] = true
-	}
-	return nil
-}
-
-func isBotValid(addr string) bool {
-
-	addrlen := len(addr) - 1
-	flag, index := 0, 0
-
-	for i := addrlen; i > 0; i-- {
-
-		if addr[i] == '.' {
-			flag++
-		}
-		if flag == 3 {
-			index = i + 1
-			break
-		}
-	}
-
-	if addrlen > 5 {
-
-		domain := addr[index:addrlen]
-
-		if _, ok := validBots[domain]; ok {
-			return true
-		}
-	}
-	return false
-}
-
-func ExtractIP(row []byte) (LogRecord, error) {
-	parts := bytes.SplitN(row, []byte(" "), 11)[0:10]
-
-	if len(parts) < 10 {
-		return LogRecord{}, ErrWrongLogLine
-	}
-
-	if len(parts[3]) < 13 {
-		return LogRecord{}, ErrWrongDateFormat
-	}
-	date, err := time.Parse("02/Jan/2006", string(parts[3][1:12]))
-	if err != nil {
-		return LogRecord{}, fmt.Errorf("on time parse: %v", err)
-	}
-	code, _ := strconv.Atoi(string(parts[8]))
-	downloaded, _ := strconv.ParseUint(string(parts[9]), 10, 64)
-
-	return LogRecord{
-		IP:         net.ParseIP(string(parts[0])),
-		Path:       string(parts[6]),
-		Date:       date,
-		Bytes:      downloaded,
-		StatusCode: code,
-	}, nil
 }
 
 func (users *Users) Lookup(user *User) {
@@ -255,7 +171,7 @@ func (users *Users) Lookup(user *User) {
 
 	user.Checked = true
 
-	if _, ok := wlist[user.IP]; ok {
+	if _, ok := users.wlist[user.IP]; ok {
 		user.White = true
 		return
 	}
@@ -268,7 +184,7 @@ func (users *Users) Lookup(user *User) {
 	}
 
 	if isBotValid(dns[0]) {
-		log.Printf("White ip detected: %s\n", user.IP)
+		log.Printf("White IP detected: %s\n", user.IP)
 		user.White = true
 		return
 	}
@@ -277,10 +193,10 @@ func (users *Users) Lookup(user *User) {
 	users.IPChan <- user.IP
 }
 
-func (u *Users) execBan() {
+func (users *Users) execBan() {
 
-	for ip := range u.IPChan {
-		u.firewaller.AddIP(ip)
+	for ip := range users.IPChan {
+		users.firewaller.AddIP(ip)
 	}
 }
 
@@ -314,17 +230,21 @@ func (users *Users) HandleEvent(line []byte) error {
 		}
 		return nil
 	}
-	users.Push(ip, NewUser(ip, logRecord.Bytes))
+	users.Push(NewUser(ip, logRecord.Bytes))
 	return nil
 }
 
-func (users *Users) sigHandler(sig chan os.Signal) {
+func (users *Users) loop(sig chan os.Signal) {
 
 	for {
 		select {
+		case ip := <-users.IPChan:
+			if err := users.firewaller.AddIP(ip); err != nil {
+				log.Printf("on block IP: %v\n", err)
+			}
 		case s := <-sig:
 			switch s {
-			case SIGHUP:
+			case syscall.SIGHUP:
 				users.Reset()
 				log.Println("Signal HUP received")
 
@@ -366,6 +286,61 @@ func (user *User) NotVerified() bool {
 	return (!user.White && !user.Banned && user.Checked == false) || (!user.Checked && user.isExceededLimit())
 }
 
+func ExtractIP(row []byte) (LogRecord, error) {
+	parts := bytes.SplitN(row, []byte(" "), 11)[0:10]
+
+	if len(parts) < 10 {
+		return LogRecord{}, ErrWrongLogLine
+	}
+
+	if len(parts[3]) < 13 {
+		return LogRecord{}, ErrWrongDateFormat
+	}
+	date, err := time.Parse("02/Jan/2006", string(parts[3][1:12]))
+	if err != nil {
+		return LogRecord{}, fmt.Errorf("on time parse: %v", err)
+	}
+	code, _ := strconv.Atoi(string(parts[8]))
+	downloaded, _ := strconv.ParseUint(string(parts[9]), 10, 64)
+
+	return LogRecord{
+		IP:         net.ParseIP(string(parts[0])),
+		Path:       string(parts[6]),
+		Date:       date,
+		Bytes:      downloaded,
+		StatusCode: code,
+	}, nil
+}
+
 func today() time.Time {
 	return time.Now().UTC().Truncate(24 * time.Hour)
+}
+
+func timeTrack(start time.Time, name string) {
+	fmt.Printf("%s name took %s \n", name, (time.Since(start) / time.Nanosecond))
+}
+
+func isBotValid(addr string) bool {
+
+	addrlen := len(addr) - 1
+	flag, index := 0, 0
+
+	for i := addrlen; i > 0; i-- {
+
+		if addr[i] == '.' {
+			flag++
+		}
+		if flag == 3 {
+			index = i + 1
+			break
+		}
+	}
+
+	if addrlen > 5 {
+		domain := addr[index:addrlen]
+		if _, ok := validBots[domain]; ok {
+			return true
+		}
+	}
+	return false
 }

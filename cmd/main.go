@@ -8,6 +8,7 @@ import (
 
 	"github.com/felicson/checkbot"
 	"github.com/felicson/checkbot/internal/firewall"
+	"github.com/felicson/checkbot/internal/flags"
 	logproducer "github.com/felicson/checkbot/internal/producer/logfile"
 	"github.com/felicson/checkbot/internal/web"
 )
@@ -15,18 +16,14 @@ import (
 var (
 	logfile string
 	loglist string
-	wlist   checkbot.Whitelist
+	wlist   flags.Whitelist
 )
 
-func init() {
+func main() {
 
 	flag.StringVar(&loglist, "loglist", "/home/felicson/loglist.conf", "loglist=/path/loglist.conf")
 	flag.StringVar(&logfile, "logfile", "/home/felicson/checkbot.log", "logfile=/path/loglist.conf")
 	flag.Var(&wlist, "ignoreip", "ignoreip=1.2.3.4")
-
-}
-
-func main() {
 
 	flag.Parse()
 	if flag.NFlag() < 2 {
@@ -62,11 +59,11 @@ func main() {
 		logs = append(logs, reader.Text())
 	}
 	file.Close()
-	firewaller := &firewall.Mock{}
+	firewaller := &firewall.Ipset{}
 
 	users, err := checkbot.NewUsers(firewaller, wlist)
 	if err != nil {
-		log.Fatalf("on new items %v\n", err)
+		log.Fatalf("on new users %v\n", err)
 	}
 
 	producer, err := logproducer.NewProducer(logs, users.HandleEvent)
