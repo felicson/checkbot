@@ -5,6 +5,7 @@ import (
 	"flag"
 	"log"
 	"os"
+	"time"
 
 	"github.com/felicson/checkbot"
 	"github.com/felicson/checkbot/internal/firewall"
@@ -59,14 +60,14 @@ func main() {
 		logs = append(logs, reader.Text())
 	}
 	file.Close()
-	firewaller := &firewall.Ipset{}
+	firewaller := &firewall.Mock{}
 
 	users, err := checkbot.NewUsers(firewaller, wlist)
 	if err != nil {
 		log.Fatalf("on new users %v\n", err)
 	}
 
-	producer, err := logproducer.NewProducer(logs, users.HandleEvent)
+	producer, err := logproducer.NewProducer(logs, users.HandleEvent, 2*time.Second)
 	if err != nil {
 		log.Fatal(err)
 	}

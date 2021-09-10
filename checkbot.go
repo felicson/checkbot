@@ -193,13 +193,6 @@ func (users *Users) Lookup(user *User) {
 	users.IPChan <- user.IP
 }
 
-func (users *Users) execBan() {
-
-	for ip := range users.IPChan {
-		users.firewaller.AddIP(ip)
-	}
-}
-
 func (users *Users) HandleEvent(line []byte) error {
 
 	logRecord, err := ExtractIP(line)

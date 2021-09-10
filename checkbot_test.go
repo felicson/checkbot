@@ -48,18 +48,6 @@ func BenchmarkIsWhitePath(b *testing.B) {
 //	}
 //}
 
-func BenchmarkItemPush(b *testing.B) {
-
-	b.StopTimer()
-	data, _ := NewUsers(&firewall.Mock{}, nil)
-	b.StartTimer()
-	b.ReportAllocs()
-
-	for n := 0; n < b.N; n++ {
-		data.Push("1.2.3.4", NewUser("12.34.23.3", 200))
-	}
-}
-
 func BenchmarkExtractIP(b *testing.B) {
 
 	b.ReportAllocs()

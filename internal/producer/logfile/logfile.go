@@ -6,7 +6,9 @@ import (
 	"io"
 	"log"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/felicson/checkbot"
@@ -15,22 +17,30 @@ import (
 
 type eventFn func(event []byte) error
 type LogFile struct {
-	ticker  *time.Ticker
 	logs    []*checkbot.LogFile
 	eventFn eventFn
 }
 
-func NewProducer(logs []string, eventParser eventFn) (LogFile, error) {
-	ticker := time.NewTicker(2 * time.Second)
+func NewProducer(logs []string, eventParser eventFn, interval time.Duration) (LogFile, error) {
 	l := LogFile{eventFn: eventParser}
 
 	for _, srcLog := range logs {
 		l.logs = append(l.logs, &checkbot.LogFile{Path: srcLog})
 	}
 
+	ticker := time.NewTicker(interval)
+
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, os.Kill, syscall.SIGTERM, os.Interrupt)
+
 	go func() {
-		for range ticker.C {
-			l.logsReader()
+		for {
+			select {
+			case <-ticker.C:
+				l.logsReader()
+			case <-sig:
+				ticker.Stop()
+			}
 		}
 	}()
 	return l, nil
