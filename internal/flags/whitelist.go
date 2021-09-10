@@ -6,6 +6,11 @@ import (
 	"strings"
 )
 
+var (
+	ErrAlreadySet = errors.New("flag already defined")
+	ErrWrongValue = errors.New("argument has wrong value")
+)
+
 type Whitelist map[string]bool
 
 func (i *Whitelist) String() string {
@@ -14,13 +19,14 @@ func (i *Whitelist) String() string {
 
 func (i *Whitelist) Set(value string) error {
 	if len(*i) > 0 {
-		return errors.New("ignoreip flag already set")
+		return ErrAlreadySet
 	}
 	if !strings.Contains(value, ".") {
-		return errors.New("ignoreip flag has wrong value")
+		return ErrWrongValue
 	}
-	*i = make(Whitelist)
-	for _, v := range strings.Split(value, ",") {
+	values := strings.Split(value, ",")
+	*i = make(Whitelist, len(values))
+	for _, v := range values {
 		(*i)[v] = true
 	}
 	return nil
