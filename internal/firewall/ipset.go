@@ -5,8 +5,7 @@ import (
 	"os/exec"
 )
 
-type Ipset struct {
-}
+type Ipset struct{}
 
 func (f *Ipset) AddIP(ip string) error {
 	return f.execCommand(fmt.Sprintf("sudo /sbin/ipset add blacklist %s", ip))

@@ -60,7 +60,7 @@ func main() {
 		logs = append(logs, reader.Text())
 	}
 	file.Close()
-	firewaller := &firewall.Mock{}
+	firewaller := &firewall.Ipset{}
 
 	users, err := checkbot.NewUsers(firewaller, wlist)
 	if err != nil {
