@@ -2,7 +2,10 @@ package checkbot
 
 import (
 	//	"fmt"
+	"net"
+	"reflect"
 	"testing"
+	"time"
 
 	"github.com/felicson/checkbot/internal/firewall"
 )
@@ -40,6 +43,23 @@ func TestIsWhitePath(t *testing.T) {
 			}
 		})
 
+	}
+}
+
+func TestExtractIP(t *testing.T) {
+	expect := LogRecord{
+		IP:         net.ParseIP("207.46.13.16"),
+		Path:       "/board/gidrocilindr-55102-8603010-no-105684.html",
+		Date:       time.Date(2016, 03, 07, 0, 0, 0, 0, time.UTC),
+		Bytes:      9518,
+		StatusCode: 200,
+	}
+	got, err := ExtractIP([]byte(logline))
+	if err != nil {
+		t.Error(err)
+	}
+	if !reflect.DeepEqual(got, expect) {
+		t.Fatalf("expect: %v, got: %v", expect, got)
 	}
 }
 
