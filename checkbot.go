@@ -268,25 +268,19 @@ func (user *User) NotVerified() bool {
 }
 
 func ExtractIP(row []byte) (LogRecord, error) {
-	s := string(row)
-	parts := strings.SplitN(s, " ", 11)
-	if len(parts) < 10 {
-		return LogRecord{}, ErrWrongLogLine
-	}
-
-	if len(parts[3]) < 13 {
+	a := splitN(row)
+	if len(a[3]) < 13 {
 		return LogRecord{}, ErrWrongDateFormat
 	}
-	date, err := time.Parse("02/Jan/2006", parts[3][1:12])
+	date, err := time.Parse("02/Jan/2006", a[3][1:12])
 	if err != nil {
 		return LogRecord{}, fmt.Errorf("on time parse: %v", err)
 	}
-	code, _ := strconv.Atoi(parts[8])
-	downloaded, _ := strconv.ParseUint(parts[9], 10, 64)
-
+	code, _ := strconv.Atoi(a[8])
+	downloaded, _ := strconv.ParseUint(a[9], 10, 64)
 	return LogRecord{
-		IP:         net.ParseIP(parts[0]),
-		Path:       string(parts[6]),
+		IP:         net.ParseIP(a[0]),
+		Path:       a[6],
 		Date:       date,
 		Bytes:      downloaded,
 		StatusCode: code,
@@ -324,4 +318,21 @@ func isBotValid(addr string) bool {
 		}
 	}
 	return false
+}
+
+func splitN(data []byte) []string {
+	s := string(data)
+	var a = make([]string, 11)
+	i := 0
+	sep := " "
+	for i < 11 {
+		m := strings.Index(s, sep)
+		if m < 0 {
+			break
+		}
+		a[i] = s[:m]
+		s = s[m+len(sep):]
+		i++
+	}
+	return a
 }

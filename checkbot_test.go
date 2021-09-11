@@ -12,7 +12,7 @@ import (
 
 var bot = "sdf.spider-141-8-132-86.google.com."
 var botinvalid = "sdf.spider-141-8-132-86.bla.ru."
-var logline = `207.46.13.16 - - [07/Mar/2016:17:26:23 +0300] "GET /board/gidrocilindr-55102-8603010-no-105684.html HTTP/1.1" 200 9518 "-" "Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)"`
+var logline = []byte(`207.46.13.16 - - [07/Mar/2016:17:26:23 +0300] "GET /board/gidrocilindr-55102-8603010-no-105684.html HTTP/1.1" 200 9518 "-" "Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)"`)
 
 func TestBotValid(t *testing.T) {
 
@@ -92,6 +92,14 @@ func BenchmarkExtractIP(b *testing.B) {
 
 	b.ReportAllocs()
 	for n := 0; n < b.N; n++ {
-		_, _ = ExtractIP([]byte(logline))
+		_, _ = ExtractIP(logline)
+	}
+}
+
+func BenchmarkSplitN(b *testing.B) {
+
+	b.ReportAllocs()
+	for n := 0; n < b.N; n++ {
+		_ = splitN(logline)
 	}
 }
