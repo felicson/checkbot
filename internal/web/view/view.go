@@ -52,6 +52,9 @@ func NewView() (*View, error) {
 		"float": func(val float32) string {
 			return fmt.Sprintf("%.2f", val)
 		},
+		"add": func(val, arg int) int {
+			return val + arg + 1
+		},
 	}
 
 	getName := func(tpl string) string {
@@ -88,7 +91,6 @@ func NewView() (*View, error) {
 		if _, err = tb.Parse(string(data)); err != nil {
 			return nil, err
 		}
-
 	}
 
 	for _, tpl := range pages {

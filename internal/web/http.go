@@ -2,15 +2,12 @@ package web
 
 import (
 	"errors"
-	"html/template"
 	"io"
 	"log"
-	"math"
 	"net"
 	"net/http"
 	"os"
 	"sort"
-	"strconv"
 	"sync"
 	"time"
 
@@ -26,10 +23,8 @@ const (
 )
 
 var (
-	tmpl     *template.Template
-	tmpl_err error
-
-	apool sync.Pool
+	apool          sync.Pool
+	ErrWrongOffset = errors.New("wrong offset value")
 )
 
 type By func(i1, i2 *checkbot.User) bool
@@ -39,61 +34,6 @@ func (by By) Sort(bots []*checkbot.User) ItemsList {
 	is := ItemsList{Items: bots, by: by, length: len(bots)}
 	sort.Sort(is)
 	return is
-}
-
-type ItemsList struct {
-	Items  []*checkbot.User
-	by     func(i1, i2 *checkbot.User) bool
-	length int
-}
-
-func (item ItemsList) Len() int { return len(item.Items) }
-
-func (item ItemsList) Swap(i, j int) { item.Items[i], item.Items[j] = item.Items[j], item.Items[i] }
-
-func (item ItemsList) Less(i, j int) bool {
-
-	return item.by(item.Items[i], item.Items[j])
-
-}
-
-func (items *ItemsList) Pages() []int {
-
-	var pages []int
-	pages_num := math.Ceil(float64(items.length) / float64(DELIM))
-	if pages_num > 0 {
-
-		pages = make([]int, int(pages_num))
-		for i := range pages {
-			pages[i] = i + 1
-		}
-	}
-	return pages
-
-}
-func (i *ItemsList) Offset(start string) (*ItemsList, error) {
-
-	offset, err := strconv.Atoi(start)
-	if err != nil {
-		offset = 0
-	} else {
-
-		if offset > 0 {
-			offset -= 1
-		}
-	}
-	end := (offset * DELIM) + DELIM
-
-	if len(i.Items) >= end {
-		i.Items = i.Items[offset*DELIM : end]
-		return i, nil
-	}
-
-	if offset*DELIM > len(i.Items) {
-		return nil, errors.New("Wrong offset")
-	}
-	i.Items = i.Items[offset*DELIM:]
-	return i, nil
 }
 
 type Server struct {
@@ -147,6 +87,7 @@ func (s *Server) infoHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 500)
 		return
 	}
+
 	s.view.Render(w, "index", bots)
 }
 
@@ -246,7 +187,7 @@ func (s *Server) whoisHandler(w http.ResponseWriter, r *http.Request) {
 func init() {
 
 	apool = sync.Pool{
-		New: func() interface{} { return make([]*checkbot.User, 10) },
+		New: func() interface{} { return make([]*checkbot.User, 0, 10) },
 	}
 }
 
@@ -276,8 +217,8 @@ func (s *Server) Run() error {
 		os.Remove(SOCKET)
 	}
 
-	listener, err := net.Listen("unix", SOCKET)
-	//listener, err := net.Listen("tcp4", "0.0.0.0:9001")
+	//listener, err := net.Listen("unix", SOCKET)
+	listener, err := net.Listen("tcp4", "0.0.0.0:9001")
 	if err != nil {
 		return err
 	}
