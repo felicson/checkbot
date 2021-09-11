@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"os"
 	"sort"
-	"sync"
 	"time"
 
 	"github.com/felicson/checkbot"
@@ -23,7 +22,6 @@ const (
 )
 
 var (
-	apool          sync.Pool
 	ErrWrongOffset = errors.New("wrong offset value")
 )
 
@@ -67,20 +65,11 @@ func (s *Server) infoHandler(w http.ResponseWriter, r *http.Request) {
 		bySort = func(i1, i2 *checkbot.User) bool { return i1.WhiteHits > i2.WhiteHits }
 
 	}
-	array := apool.Get().([]*checkbot.User)
-	storageLen := len(s.users.Row)
-
-	if len(array) < storageLen {
-		array = make([]*checkbot.User, storageLen)
-	}
-
-	defer apool.Put(array)
-	i := 0
+	var users []*checkbot.User
 	for _, v := range s.users.Row {
-		array[i] = v
-		i++
+		users = append(users, v)
 	}
-	data := By(bySort).Sort(array)
+	data := By(bySort).Sort(users)
 	bots, err := data.Offset(p)
 
 	if err != nil {
@@ -182,13 +171,6 @@ func (s *Server) whoisHandler(w http.ResponseWriter, r *http.Request) {
 
 	s.view.Render(w, "whois", data)
 
-}
-
-func init() {
-
-	apool = sync.Pool{
-		New: func() interface{} { return make([]*checkbot.User, 0, 10) },
-	}
 }
 
 func NewServer(users *checkbot.Users, searcher producer.Searcher, firewaller checkbot.Firewaller) *Server {
