@@ -2,12 +2,13 @@ package logfile
 
 import (
 	"bufio"
-	"fmt"
+	"bytes"
 	"io"
 	"log"
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -19,6 +20,12 @@ type eventFn func(event []byte) error
 type LogFile struct {
 	logs    []*checkbot.LogFile
 	eventFn eventFn
+}
+
+var bufPool = sync.Pool{
+	New: func() interface{} {
+		return bytes.NewBuffer(make([]byte, 0, 512))
+	},
 }
 
 func NewProducer(logs []string, eventParser eventFn, interval time.Duration) (LogFile, error) {
@@ -94,15 +101,11 @@ func (l *LogFile) logsReader() {
 				return
 			}
 
-			tmpFile, err := copyToTemporaryFile(webLog)
+			tmpFile, err := copyToPool(webLog)
 			if err != nil {
 				log.Printf("err on make tmp file: %v", err)
 				return
 			}
-			defer func() {
-				tmpFile.Close()
-				os.Remove(tmpFile.Name())
-			}()
 			scann := bufio.NewScanner(tmpFile)
 
 			for scann.Scan() {
@@ -110,27 +113,27 @@ func (l *LogFile) logsReader() {
 					log.Printf("on call eventFn err: %v\n", err)
 				}
 			}
+			putBuffer(tmpFile)
 			if scann.Err() != nil {
-				log.Printf("logfile %s, scan err: %v\n", tmpFile.Name(), err)
+				log.Printf("pool buffer scan err: %v\n", err)
 			}
 		}(lf)
 	}
 }
 
-func copyToTemporaryFile(src io.Reader) (*os.File, error) {
+func copyToPool(src io.Reader) (*bytes.Buffer, error) {
+	buf := bufPool.Get().(*bytes.Buffer)
+	buf.Reset()
+	if _, err := io.Copy(buf, src); err != nil {
+		return nil, err
+	}
+	return buf, nil
+}
 
-	tmpFile, err := os.CreateTemp("/tmp", "checkbot_")
-	if err != nil {
-		return nil, fmt.Errorf("err on make tmp file: %v", err)
+func putBuffer(buf *bytes.Buffer) {
+	const maxSize = 1 << 16 //64kiB
+	if buf.Cap() > maxSize {
+		return
 	}
-	written, err := io.Copy(tmpFile, src)
-	if err != nil {
-		return nil, fmt.Errorf("err on copy of tail of log file to tmp file: %v", err)
-	}
-	log.Printf("written %d bytes to the %s\n", written, tmpFile.Name())
-
-	if _, err := tmpFile.Seek(0, 0); err != nil {
-		return nil, fmt.Errorf("on seek tmp file: %v", err)
-	}
-	return tmpFile, nil
+	bufPool.Put(buf)
 }
