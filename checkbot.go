@@ -83,8 +83,8 @@ type User struct {
 }
 
 type Users struct {
-	Row map[string]*User
-	sync.Mutex
+	Row        map[string]*User
+	mu         sync.Mutex
 	today      time.Time
 	trie       *gtrie.Node
 	firewaller Firewaller
@@ -135,8 +135,8 @@ func (users *Users) IsWhitePath(path string) bool {
 
 func (users *Users) Push(item *User) {
 
-	users.Lock()
-	defer users.Unlock()
+	users.mu.Lock()
+	defer users.mu.Unlock()
 	users.Row[item.IP] = item
 }
 
@@ -149,8 +149,8 @@ func (users *Users) Get(ip string) (*User, bool) {
 //Truncate clear all existing data
 func (users *Users) Truncate() {
 
-	users.Lock()
-	defer users.Unlock()
+	users.mu.Lock()
+	defer users.mu.Unlock()
 	users.Row = make(map[string]*User)
 	users.today = today()
 }
