@@ -63,6 +63,15 @@ func TestExtractIP(t *testing.T) {
 	}
 }
 
+func TestToday(t *testing.T) {
+	expect, _ := time.Parse("02/Jan/2006", time.Now().Format("02/Jan/2006"))
+	today := today()
+	if !expect.Equal(today) {
+		t.Fatalf("expect: %s, got: %s", expect, today)
+	}
+	t.Log(expect, today)
+}
+
 func BenchmarkBotValid(b *testing.B) {
 
 	for n := 0; n < b.N; n++ {
