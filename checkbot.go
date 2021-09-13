@@ -288,7 +288,7 @@ func ExtractIP(row []byte) (LogRecord, error) {
 }
 
 func today() time.Time {
-	return time.Now().UTC().Truncate(24 * time.Hour)
+	return time.Now().Round(24 * time.Hour).In(time.UTC)
 }
 
 func timeTrack(start time.Time, name string) {
